@@ -1,0 +1,41 @@
+# macOS
+.DS_Store
+
+# Xcode user settings
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+*.xcuserstate
+
+# Xcode and app build artifacts
+build/
+DerivedData/
+.derivedData/
+*.hmap
+*.ipa
+*.dSYM
+*.dSYM.zip
+*.xcresult
+
+# SwiftPM
+.build/
+.swiftpm/
+.swift-module-cache/
+
+# Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# Local tooling
+.codex-derived/
+.codex-cache/
+*.log
