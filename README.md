@@ -6,6 +6,8 @@ PhotoSorter is a native macOS app for quickly sorting loose image files into cat
 
 It is designed for photos that are not part of your macOS Photos library. Choose a folder, create categories, then assign each image with a single key. PhotoSorter moves the file into the matching category folder immediately.
 
+[Demo](https://kunat.dev/notes/photosorter-release/)
+
 ## Features
 
 - Sort `.jpg`, `.jpeg`, `.png`, and `.heic` files.
