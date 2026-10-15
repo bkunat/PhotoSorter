@@ -12,7 +12,13 @@ It is designed for photos that are not part of your macOS Photos library. Choose
 
 - Sort `.jpg`, `.jpeg`, `.png`, and `.heic` files.
 - Create categories with single-letter or digit shortcuts.
-- Navigate with arrow keys.
+- Navigate with arrow keys and inspect the selected photo with Space (Quick Look).
+- Change a photo's category directly, or press Delete to return it to the chosen folder.
+- Undo file moves with Command-Z during the current session.
+- Reopen folders with saved category names and shortcuts on this Mac.
+- Browse a large photo preview with a compact filmstrip.
+
+Category settings are stored locally in the app's preferences. Photos remain ordinary files in your folders. Undo history lasts for the current session; opening another folder resets it.
 
 ## How to Run
 

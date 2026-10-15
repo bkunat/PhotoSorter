@@ -8,97 +8,57 @@ struct CategoryRowView: View {
     let category: Category
     let assignedCount: Int
     let canCategorizeCurrentPhoto: Bool
-    let isComplete: Bool
+    let isCurrentCategory: Bool
     let onEdit: () -> Void
     let onCategorize: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            Button {
-                guard canCategorizeCurrentPhoto else { return }
-                onCategorize()
-            } label: {
-                HStack(spacing: 12) {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(tint.gradient)
-                        .frame(width: 10, height: 44)
-
-                    VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 6) {
+            Button(action: onCategorize) {
+                HStack(spacing: 10) {
+                    Image(systemName: isCurrentCategory ? "checkmark.circle.fill" : "circle.fill")
+                        .foregroundStyle(tint)
+                        .font(.system(size: isCurrentCategory ? 16 : 10))
+                        .frame(width: 18)
+                    VStack(alignment: .leading, spacing: 3) {
                         Text(category.name)
-                            .foregroundStyle(.primary)
-
-                        Text(category.destinationFolderURL.lastPathComponent)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text(category.shortcut.displayValue)
-                            .font(.headline.monospaced())
-                            .foregroundStyle(.primary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(tint.opacity(0.18))
-                            .overlay {
-                                Capsule()
-                                    .stroke(tint.opacity(0.36), lineWidth: 1)
-                            }
-                            .clipShape(Capsule())
-
+                            .font(.body.weight(isCurrentCategory ? .semibold : .regular))
+                            .lineLimit(2)
                         Text("\(assignedCount) photo\(assignedCount == 1 ? "" : "s")")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                     }
+                    Spacer(minLength: 4)
+                    Text(category.shortcut.displayValue)
+                        .font(.callout.monospaced().weight(.medium))
+                        .frame(minWidth: 24, minHeight: 25)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(tint.opacity(0.10))
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(tint.opacity(0.18), lineWidth: 1)
-                }
+                .contentShape(Rectangle())
+                .padding(.vertical, 9)
+                .padding(.leading, 8)
             }
             .buttonStyle(.plain)
-            .opacity(canCategorizeCurrentPhoto ? 1 : 0.78)
-            .help(actionHelp)
-            .accessibilityHint(actionHelp)
+            .disabled(!canCategorizeCurrentPhoto || isCurrentCategory)
+            .help(isCurrentCategory ? "Current category" : "Move current photo to \(category.name)")
+            .accessibilityLabel("\(category.name), \(assignedCount) photo\(assignedCount == 1 ? "" : "s"), shortcut \(category.shortcut.displayValue)")
+            .accessibilityValue(isCurrentCategory ? "Current category" : "")
 
-            Button {
-                onEdit()
-            } label: {
-                Image(systemName: "pencil")
-                    .frame(width: 18, height: 18)
-                    .padding(10)
-                    .background(tint.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            Button(action: onEdit) {
+                Image(systemName: "ellipsis")
+                    .frame(width: 24, height: 30)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .help("Edit category")
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Edit \(category.name)")
+            .help("Edit \(category.name)")
         }
+        .padding(.trailing, 4)
+        .background(isCurrentCategory ? tint.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
         .contextMenu {
-            Button("Edit Category", systemImage: "pencil") {
-                onEdit()
-            }
+            Button("Edit Category", systemImage: "pencil", action: onEdit)
         }
-    }
-
-    private var actionHelp: String {
-        if canCategorizeCurrentPhoto {
-            return "Move current photo to \(category.name)"
-        }
-
-        if isComplete {
-            return "\(category.name) has \(assignedCount) sorted photos"
-        }
-
-        return "Navigate to an uncategorized photo before assigning \(category.name)"
     }
 
     private var tint: Color {

@@ -12,7 +12,9 @@ struct KeyboardShortcutsPanelView: View {
 
             shortcutRow(key: "←", action: "Previous photo")
             shortcutRow(key: "→", action: "Next photo")
-            shortcutRow(key: "⌫", action: "Remove category")
+            shortcutRow(key: "⌫", action: "Return to Unsorted")
+            shortcutRow(key: "Space", action: "Quick Look")
+            shortcutRow(key: "⌘O", action: "Choose folder")
             shortcutRow(key: "⌘N", action: "New category")
             shortcutRow(key: "⌘Z", action: "Undo last move")
         }
@@ -26,7 +28,7 @@ struct KeyboardShortcutsPanelView: View {
         HStack {
             Text(key)
                 .font(.headline.monospaced())
-                .frame(width: 44)
+                .frame(width: 54)
                 .padding(.vertical, 6)
                 .background(Color.accentColor.opacity(0.12))
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))

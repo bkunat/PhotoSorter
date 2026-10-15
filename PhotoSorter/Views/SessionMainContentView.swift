@@ -10,11 +10,8 @@ struct SessionMainContentView: View {
     let categories: [Category]
     let stats: SessionStats
     let currentPhotoIndex: Int?
-    let currentPhoto: PhotoItem?
-    let currentPhotoCategory: Category?
     let activeFeedback: SessionFeedback?
     let recentDirectories: [RecentDirectory]
-    let canUndo: Bool
     let onChooseFolder: () -> Void
     let onOpenRecentDirectory: (RecentDirectory) -> Void
     let onSelectPhoto: (Int) -> Void
@@ -29,16 +26,14 @@ struct SessionMainContentView: View {
                 )
             } else if photos.isEmpty {
                 EmptyFolderView(onChooseFolder: onChooseFolder)
-            } else {
+            } else if let selectedDirectoryURL {
                 SorterWorkspaceView(
+                    directoryURL: selectedDirectoryURL,
                     photos: photos,
                     categories: categories,
                     stats: stats,
                     currentPhotoIndex: currentPhotoIndex,
-                    currentPhoto: currentPhoto,
-                    currentPhotoCategory: currentPhotoCategory,
                     activeFeedback: activeFeedback,
-                    canUndo: canUndo,
                     onSelectPhoto: onSelectPhoto,
                     onChooseAnotherFolder: onChooseFolder
                 )

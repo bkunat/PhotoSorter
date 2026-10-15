@@ -4,7 +4,7 @@
 
 import Foundation
 
-struct ShortcutKey: Hashable, Equatable, Codable {
+nonisolated struct ShortcutKey: Hashable, Equatable, Codable, Sendable {
     let rawValue: String
 
     init?(_ input: String) {

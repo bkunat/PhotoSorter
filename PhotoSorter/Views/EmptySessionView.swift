@@ -15,12 +15,12 @@ struct EmptySessionView: View {
                 ContentUnavailableView(
                     "Choose a Folder",
                     systemImage: "folder.badge.plus",
-                    description: Text("Select a folder of top-level photos to start sorting.")
+                    description: Text("Choose a folder, add categories, then press a category key to sort each photo.")
                 )
                 .frame(maxWidth: .infinity)
 
                 HStack(spacing: 14) {
-                    Button("Select Folder") {
+                    Button("Choose Folder") {
                         onChooseFolder()
                     }
                     .buttonStyle(.borderedProminent)
@@ -31,6 +31,11 @@ struct EmptySessionView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                Text("Files move into category folders immediately. Use ⌘Z to undo moves during this session. Category names and shortcuts are remembered on this Mac.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if !recentDirectories.isEmpty {
                     RecentDirectoriesView(

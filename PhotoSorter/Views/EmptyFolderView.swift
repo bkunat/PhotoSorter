@@ -12,7 +12,7 @@ struct EmptyFolderView: View {
             ContentUnavailableView(
                 "No Supported Photos Found",
                 systemImage: "photo.on.rectangle.angled",
-                description: Text("This folder contains no supported top-level `.jpg`, `.jpeg`, `.png`, or `.heic` files.")
+                description: Text("No JPG, JPEG, PNG, or HEIC images were found in the selected folders.")
             )
 
             Button("Choose Another Folder", systemImage: "folder") {

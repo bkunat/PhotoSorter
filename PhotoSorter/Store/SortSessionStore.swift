@@ -18,6 +18,11 @@ struct SessionFeedback: Identifiable, Equatable {
     let systemImage: String
 }
 
+nonisolated private enum DirectoryOpenResult: Sendable {
+    case prompt(Int)
+    case session(SessionLoadResult, SessionLoadMode)
+}
+
 @MainActor
 @Observable
 final class SortSessionStore {
@@ -32,9 +37,14 @@ final class SortSessionStore {
     var activeFeedback: SessionFeedback?
     var pendingProjectOpen: PendingProjectOpen?
     var recentDirectories: [RecentDirectory] = []
+    private(set) var isLoading = false
 
     @ObservationIgnored private let fileManager: FileManager
-    @ObservationIgnored private let scanner: SessionScanner
+    @ObservationIgnored private let scanner: any SessionScanning
+    @ObservationIgnored private let categorySettingsPersistence: CategorySettingsPersistence
+    @ObservationIgnored private var includesOtherFolders = false
+    @ObservationIgnored private var loadingTask: Task<Void, Never>?
+    @ObservationIgnored private var loadingID: UUID?
     @ObservationIgnored private let recentDirectoryPersistence: RecentDirectoryPersistence
     @ObservationIgnored private let categoryMutationSupport: CategoryMutationSupport
     @ObservationIgnored private let securityScopedResourceAccess: SecurityScopedResourceAccess
@@ -43,11 +53,13 @@ final class SortSessionStore {
     init(
         fileManager: FileManager = .default,
         userDefaults: UserDefaults = .standard,
-        securityScopedResourceAccess: SecurityScopedResourceAccess? = nil
+        securityScopedResourceAccess: SecurityScopedResourceAccess? = nil,
+        scanner: (any SessionScanning)? = nil
     ) {
         self.fileManager = fileManager
         self.securityScopedResourceAccess = securityScopedResourceAccess ?? DefaultSecurityScopedResourceAccess()
-        scanner = SessionScanner(fileManager: fileManager)
+        self.scanner = scanner ?? SessionScanner(fileManager: fileManager)
+        categorySettingsPersistence = CategorySettingsPersistence(userDefaults: userDefaults)
         recentDirectoryPersistence = RecentDirectoryPersistence(
             fileManager: fileManager,
             userDefaults: userDefaults
@@ -64,6 +76,7 @@ final class SortSessionStore {
     }
 
     deinit {
+        loadingTask?.cancel()
         if let scopedDirectoryURL {
             securityScopedResourceAccess.stopAccessing(scopedDirectoryURL)
         }
@@ -127,20 +140,20 @@ final class SortSessionStore {
     }
 
     var canUndo: Bool {
-        !undoHistory.isEmpty
+        !isLoading && !undoHistory.isEmpty
     }
 
     var canCreateCategories: Bool {
-        selectedDirectoryURL != nil
+        !isLoading && selectedDirectoryURL != nil
     }
 
     var canCategorizeCurrentPhoto: Bool {
         guard !categories.isEmpty else { return false }
-        return currentPhoto?.status.isUncategorized == true
+        return !isLoading && currentPhoto != nil
     }
 
     var canRemoveCurrentPhotoCategory: Bool {
-        currentPhoto?.status.assignedCategoryID != nil
+        !isLoading && currentPhoto?.status.assignedCategoryID != nil
     }
 
     func perform(_ action: () throws -> Void) {
@@ -154,12 +167,12 @@ final class SortSessionStore {
     }
 
     func openDirectory(_ directoryURL: URL) {
-        perform {
-            try prepareDirectoryOpen(from: directoryURL)
-        }
+        startLoading(directoryURL)
     }
 
     func openRecentDirectory(_ recentDirectory: RecentDirectory) {
+        cancelLoading()
+        pendingProjectOpen = nil
         AppLogger.info(
             "Attempting to reopen recent folder \(recentDirectory.path)",
             category: .session
@@ -185,11 +198,12 @@ final class SortSessionStore {
                 replaceRecentDirectory(recentDirectory, with: updatedDirectory)
             }
 
-            try prepareDirectoryOpen(from: resolution.url)
+            startLoading(resolution.url)
         }
     }
 
     func openCategorySheet(for categoryID: Category.ID? = nil) {
+        guard !isLoading else { return }
         guard selectedDirectoryURL != nil else {
             present(.noFolderSelected)
             return
@@ -234,13 +248,7 @@ final class SortSessionStore {
             category: .session
         )
 
-        perform {
-            if asExistingProject {
-                try loadExistingProject(from: pendingProjectOpen.directoryURL)
-            } else {
-                try loadSession(from: pendingProjectOpen.directoryURL)
-            }
-        }
+        startLoading(pendingProjectOpen.directoryURL, mode: asExistingProject ? .existingProject : .topLevelOnly)
     }
 
     func dismissPendingProjectOpen() {
@@ -254,12 +262,13 @@ final class SortSessionStore {
     }
 
     private func loadSession(from directoryURL: URL, mode: SessionLoadMode) throws {
+        cancelLoading()
         let previousScopedDirectoryURL = scopedDirectoryURL
         let startedSecurityScope = securityScopedResourceAccess.startAccessing(directoryURL)
 
         do {
             let scanMeasurement = try AppLogger.measure(mode.measurementName, category: .performance) {
-                try scanner.buildSessionLoadResult(in: directoryURL, mode: mode)
+                try scanner.buildSessionLoadResult(in: directoryURL, mode: mode, settings: categorySettingsPersistence.load(for: directoryURL))
             }
             let session = scanMeasurement.value
             replaceScopedDirectory(
@@ -268,17 +277,7 @@ final class SortSessionStore {
                 previousScopedDirectoryURL: previousScopedDirectoryURL
             )
 
-            selectedDirectoryURL = directoryURL
-            photos = session.photos
-            currentPhotoIndex = session.initialPhotoIndex
-            categories = session.categories
-            undoHistory = []
-            isPresentingCategorySheet = false
-            editingCategoryID = nil
-            activeAlert = nil
-            activeFeedback = nil
-            pendingProjectOpen = nil
-            rememberRecentDirectory(directoryURL)
+            applySession(session, directoryURL: directoryURL, mode: mode)
 
             AppLogger.info(
                 """
@@ -309,6 +308,7 @@ final class SortSessionStore {
     }
 
     func createCategory(name: String, shortcut: String) throws {
+        guard !isLoading else { return }
         guard let selectedDirectoryURL else {
             throw SessionError.noFolderSelected
         }
@@ -328,6 +328,7 @@ final class SortSessionStore {
                 destinationFolderURL: destinationFolderURL
             )
         )
+        persistCategorySettings()
         dismissCategorySheet()
 
         AppLogger.info(
@@ -341,6 +342,7 @@ final class SortSessionStore {
         name: String,
         shortcut: String
     ) throws {
+        guard !isLoading else { return }
         guard let selectedDirectoryURL else {
             throw SessionError.noFolderSelected
         }
@@ -383,6 +385,7 @@ final class SortSessionStore {
         categories[categoryIndex].name = trimmedName
         categories[categoryIndex].shortcut = parsedShortcut
         categories[categoryIndex].destinationFolderURL = updatedFolderURL
+        persistCategorySettings()
         dismissCategorySheet()
 
         AppLogger.info(
@@ -392,6 +395,7 @@ final class SortSessionStore {
     }
 
     func categorizeCurrentPhoto(with categoryID: Category.ID) throws {
+        guard !isLoading else { return }
         guard let currentPhotoIndex, photos.indices.contains(currentPhotoIndex) else {
             throw SessionError.noCurrentPhoto
         }
@@ -400,9 +404,7 @@ final class SortSessionStore {
             throw SessionError.invalidCategory
         }
 
-        guard photos[currentPhotoIndex].status.isUncategorized else {
-            throw SessionError.photoAlreadyCategorized
-        }
+        guard photos[currentPhotoIndex].status != .categorized(categoryID) else { return }
 
         let photo = photos[currentPhotoIndex]
         let sourceURL = photo.currentURL
@@ -440,12 +442,15 @@ final class SortSessionStore {
         undoHistory.append(
             SortAction(
                 photoID: photo.id,
-                categoryID: category.id,
                 sourceURL: sourceURL,
-                destinationURL: destinationURL
+                destinationURL: destinationURL,
+                previousStatus: photo.status,
+                nextStatus: .categorized(category.id)
             )
         )
-        setCurrentPhotoIndex(nextUnsortedIndex(after: currentPhotoIndex) ?? currentPhotoIndex)
+        if photo.status.isUncategorized {
+            setCurrentPhotoIndex(nextUnsortedIndex(after: currentPhotoIndex) ?? currentPhotoIndex)
+        }
         activeFeedback = SessionFeedback(
             message: "Moved \(photo.filename) to \(category.name)",
             categoryID: category.id,
@@ -457,7 +462,7 @@ final class SortSessionStore {
             category: .fileSystem
         )
 
-        if isComplete {
+        if photo.status.isUncategorized && isComplete {
             activeFeedback = SessionFeedback(
                 message: "Sorting complete",
                 categoryID: nil,
@@ -468,6 +473,7 @@ final class SortSessionStore {
     }
 
     func undoLastCategorization() throws {
+        guard !isLoading else { return }
         guard let lastAction = undoHistory.last else {
             throw SessionError.nothingToUndo
         }
@@ -499,12 +505,12 @@ final class SortSessionStore {
         }
 
         photos[photoIndex].currentURL = lastAction.sourceURL
-        photos[photoIndex].status = .uncategorized
+        photos[photoIndex].status = lastAction.previousStatus
         setCurrentPhotoIndex(photoIndex)
         undoHistory.removeLast()
         activeFeedback = SessionFeedback(
             message: "Restored \(lastAction.sourceURL.lastPathComponent)",
-            categoryID: nil,
+            categoryID: lastAction.previousStatus.assignedCategoryID,
             systemImage: "arrow.uturn.backward.circle.fill"
         )
 
@@ -515,6 +521,7 @@ final class SortSessionStore {
     }
 
     func removeCategoryFromCurrentPhoto() throws {
+        guard !isLoading else { return }
         guard let selectedDirectoryURL else {
             throw SessionError.noFolderSelected
         }
@@ -540,7 +547,7 @@ final class SortSessionStore {
             photos[currentPhotoIndex].status = .uncategorized
             undoHistory.removeAll { $0.photoID == photo.id }
             activeFeedback = SessionFeedback(
-                message: "Returned \(photo.filename) to root",
+                message: "Returned \(photo.filename) to Unsorted",
                 categoryID: nil,
                 systemImage: "arrow.down.forward.circle.fill"
             )
@@ -567,10 +574,16 @@ final class SortSessionStore {
 
         photos[currentPhotoIndex].currentURL = destinationURL
         photos[currentPhotoIndex].status = .uncategorized
-        undoHistory.removeAll { $0.photoID == photo.id }
+        undoHistory.append(SortAction(
+            photoID: photo.id,
+            sourceURL: sourceURL,
+            destinationURL: destinationURL,
+            previousStatus: photo.status,
+            nextStatus: .uncategorized
+        ))
         setCurrentPhotoIndex(currentPhotoIndex)
         activeFeedback = SessionFeedback(
-            message: "Returned \(photo.filename) to root",
+            message: "Returned \(photo.filename) to Unsorted",
             categoryID: nil,
             systemImage: "arrow.down.forward.circle.fill"
         )
@@ -605,23 +618,94 @@ final class SortSessionStore {
         self.activeFeedback = nil
     }
 
-    private func prepareDirectoryOpen(from directoryURL: URL) throws {
-        let nestedDirectories = try scanner.immediateSubdirectories(in: directoryURL)
+    func cancelLoading() {
+        if isLoading { AppLogger.debug("Cancelled folder loading", category: .session) }
+        loadingTask?.cancel()
+        loadingTask = nil
+        loadingID = nil
+        isLoading = false
+    }
 
-        guard !nestedDirectories.isEmpty else {
-            try loadSession(from: directoryURL)
-            return
+    private func startLoading(_ directoryURL: URL, mode: SessionLoadMode? = nil) {
+        cancelLoading()
+        pendingProjectOpen = nil
+        activeAlert = nil
+        let id = UUID()
+        loadingID = id
+        isLoading = true
+        let settings = categorySettingsPersistence.load(for: directoryURL)
+        let scanner = scanner
+        let securityAccess = securityScopedResourceAccess
+        let startedSecurityScope = securityAccess.startAccessing(directoryURL)
+        let stopwatch = AppLogger.Stopwatch()
+        AppLogger.info("Opening folder \(directoryURL.lastPathComponent)", category: .session)
+
+        let worker = Task.detached(priority: .userInitiated) { () throws -> DirectoryOpenResult in
+            try Task.checkCancellation()
+            let resolvedMode: SessionLoadMode
+            if let mode {
+                resolvedMode = mode
+            } else if let settings {
+                resolvedMode = settings.includesOtherFolders ? .existingProject : .topLevelOnly
+            } else {
+                let directories = try scanner.immediateSubdirectories(in: directoryURL)
+                if !directories.isEmpty { return .prompt(directories.count) }
+                resolvedMode = .topLevelOnly
+            }
+            let session = try scanner.buildSessionLoadResult(in: directoryURL, mode: resolvedMode, settings: settings)
+            try Task.checkCancellation()
+            return .session(session, resolvedMode)
         }
+        loadingTask = Task { [weak self] in
+            let result = await withTaskCancellationHandler {
+                await worker.result
+            } onCancel: {
+                worker.cancel()
+            }
+            guard let self, self.loadingID == id, !Task.isCancelled else {
+                if startedSecurityScope { securityAccess.stopAccessing(directoryURL) }
+                return
+            }
+            self.loadingTask = nil
+            self.loadingID = nil
+            self.isLoading = false
+            AppLogger.debug("Folder load finished in \(stopwatch.elapsedMilliseconds) ms", category: .performance)
+            switch result {
+            case let .success(.session(session, mode)):
+                self.replaceScopedDirectory(with: directoryURL, startedSecurityScope: startedSecurityScope, previousScopedDirectoryURL: self.scopedDirectoryURL)
+                self.applySession(session, directoryURL: directoryURL, mode: mode)
+            case let .success(.prompt(count)):
+                if startedSecurityScope { securityAccess.stopAccessing(directoryURL) }
+                self.pendingProjectOpen = PendingProjectOpen(directoryURL: directoryURL, existingCategoryCount: count)
+            case let .failure(error):
+                if startedSecurityScope { securityAccess.stopAccessing(directoryURL) }
+                if !(error is CancellationError) {
+                    self.present((error as? SessionError) ?? .scanFailed(folderName: directoryURL.lastPathComponent, underlying: error.localizedDescription))
+                }
+            }
+        }
+    }
 
-        pendingProjectOpen = PendingProjectOpen(
-            directoryURL: directoryURL,
-            existingCategoryCount: nestedDirectories.count
-        )
+    private func applySession(_ session: SessionLoadResult, directoryURL: URL, mode: SessionLoadMode) {
+        selectedDirectoryURL = directoryURL
+        photos = session.photos
+        currentPhotoIndex = session.initialPhotoIndex
+        categories = session.categories
+        includesOtherFolders = mode == .existingProject
+        undoHistory = []
+        isPresentingCategorySheet = false
+        editingCategoryID = nil
+        activeAlert = nil
+        activeFeedback = nil
+        pendingProjectOpen = nil
+        persistCategorySettings()
+        rememberRecentDirectory(directoryURL)
+        AppLogger.info("Loaded \(session.photos.count) photos and \(session.categories.count) categories from \(directoryURL.lastPathComponent)", category: .session)
+    }
 
-        AppLogger.info(
-            "Detected \(nestedDirectories.count) nested folder(s) in \(directoryURL.lastPathComponent); prompting for existing project mode",
-            category: .session
-        )
+    private func persistCategorySettings() {
+        guard let selectedDirectoryURL else { return }
+        categorySettingsPersistence.save(categories: categories, includesOtherFolders: includesOtherFolders, for: selectedDirectoryURL)
     }
 
     private func rememberRecentDirectory(_ directoryURL: URL) {

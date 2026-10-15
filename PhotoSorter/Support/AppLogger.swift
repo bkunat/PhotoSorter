@@ -5,7 +5,7 @@
 import Foundation
 import OSLog
 
-enum AppLogLevel {
+nonisolated enum AppLogLevel: Sendable {
     case debug
     case info
     case notice
@@ -13,7 +13,7 @@ enum AppLogLevel {
     case fault
 }
 
-enum AppLogCategory: Hashable, Sendable {
+nonisolated enum AppLogCategory: Hashable, Sendable {
     case app
     case session
     case ui
@@ -39,7 +39,7 @@ enum AppLogCategory: Hashable, Sendable {
     }
 }
 
-private final class LoggerCache: @unchecked Sendable {
+nonisolated private final class LoggerCache: @unchecked Sendable {
     private let subsystem: String
     private let queue = DispatchQueue(label: "PhotoSorter.AppLogger.Cache")
     private var cache: [String: Logger] = [:]
@@ -62,7 +62,7 @@ private final class LoggerCache: @unchecked Sendable {
     }
 }
 
-enum AppLogger {
+nonisolated enum AppLogger {
     struct Stopwatch: Sendable {
         private let start = DispatchTime.now()
 

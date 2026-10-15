@@ -73,16 +73,17 @@ final class SortSessionStoreSortingTests: XCTestCase {
         }
     }
 
-    func testCategorizeFailsWhenCurrentPhotoAlreadyCategorized() throws {
+    func testCategorizeSameCategoryDoesNothing() throws {
         let directoryURL = try makeTemporaryDirectory()
         createFile(named: "a.jpg", in: directoryURL)
         let store = try loadedStore(directoryURL: directoryURL)
         let category = try makeCategory(in: store)
         store.photos[0].status = .categorized(category.id)
 
-        XCTAssertThrowsError(try store.categorizeCurrentPhoto(with: category.id)) { error in
-            XCTAssertEqual(error as? SessionError, .photoAlreadyCategorized)
-        }
+        try store.categorizeCurrentPhoto(with: category.id)
+
+        XCTAssertTrue(store.undoHistory.isEmpty)
+        XCTAssertEqual(store.photos[0].status, .categorized(category.id))
     }
 
     func testCategorizeFailsWhenSourceFileIsMissing() throws {
@@ -179,7 +180,7 @@ final class SortSessionStoreSortingTests: XCTestCase {
         }
     }
 
-    func testRemoveCategoryFromCurrentPhotoMovesExistingProjectPhotoBackToRootAndClearsUndoEntries() throws {
+    func testRemoveCategoryFromCurrentPhotoMovesExistingProjectPhotoBackToRootAndCanUndo() throws {
         let directoryURL = try makeTemporaryDirectory()
         let dogsDirectoryURL = try createDirectory(named: "Dogs", in: directoryURL)
         let nestedPhotoURL = createFile(named: "a.jpg", in: dogsDirectoryURL)
@@ -196,7 +197,12 @@ final class SortSessionStoreSortingTests: XCTestCase {
         XCTAssertFalse(itemExists(at: nestedPhotoURL))
         XCTAssertEqual(store.photos[0].currentURL, rootURL)
         XCTAssertEqual(store.photos[0].status, .uncategorized)
-        XCTAssertTrue(store.undoHistory.isEmpty)
+        XCTAssertEqual(store.undoHistory.count, 2)
+        try store.undoLastCategorization()
+        XCTAssertTrue(fileExists(at: nestedPhotoURL))
+        XCTAssertFalse(itemExists(at: rootURL))
+        XCTAssertEqual(store.photos[0].status, .categorized(store.categories[0].id))
+        XCTAssertEqual(store.undoHistory.count, 1)
     }
 
     func testRemoveCategoryNoMoveCaseOnlyUpdatesState() throws {
@@ -250,6 +256,73 @@ final class SortSessionStoreSortingTests: XCTestCase {
         store.activeFeedback = feedback
         store.clearActiveFeedback()
         XCTAssertNil(store.activeFeedback)
+    }
+
+    func testReassignKeepsSelectionAndUndoRestoresPreviousCategory() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        createFile(named: "a.jpg", in: directoryURL)
+        createFile(named: "b.jpg", in: directoryURL)
+        let store = try loadedStore(directoryURL: directoryURL)
+        let dogs = try makeCategory(in: store)
+        try store.createCategory(name: "Cats", shortcut: "c")
+        let cats = try XCTUnwrap(store.categories.last)
+        try store.categorizeCurrentPhoto(with: dogs.id)
+        store.selectPhoto(at: 0)
+
+        try store.categorizeCurrentPhoto(with: cats.id)
+
+        XCTAssertEqual(store.currentPhotoIndex, 0)
+        XCTAssertEqual(store.photos[0].status, .categorized(cats.id))
+        XCTAssertTrue(fileExists(at: cats.destinationFolderURL.appendingPathComponent("a.jpg")))
+        XCTAssertFalse(itemExists(at: dogs.destinationFolderURL.appendingPathComponent("a.jpg")))
+        try store.undoLastCategorization()
+        XCTAssertEqual(store.photos[0].status, .categorized(dogs.id))
+        XCTAssertTrue(fileExists(at: dogs.destinationFolderURL.appendingPathComponent("a.jpg")))
+        try store.undoLastCategorization()
+        XCTAssertEqual(store.photos[0].status, .uncategorized)
+        XCTAssertTrue(fileExists(at: directoryURL.appendingPathComponent("a.jpg")))
+    }
+
+    func testReassignConflictPreservesBothFilesAndHistory() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        let dogsURL = try createDirectory(named: "Dogs", in: directoryURL)
+        let catsURL = try createDirectory(named: "Cats", in: directoryURL)
+        let dogPhoto = createFile(named: "a.jpg", in: dogsURL)
+        let catPhoto = createFile(named: "a.jpg", in: catsURL)
+        let store = makeStore()
+        try store.loadExistingProject(from: directoryURL)
+        let dogs = try XCTUnwrap(store.categories.first { $0.name == "Dogs" })
+        let index = try XCTUnwrap(store.photos.firstIndex { $0.currentURL == catPhoto })
+        store.selectPhoto(at: index)
+        let originalPhotos = store.photos
+
+        XCTAssertThrowsError(try store.categorizeCurrentPhoto(with: dogs.id))
+
+        XCTAssertEqual(store.photos, originalPhotos)
+        XCTAssertTrue(store.undoHistory.isEmpty)
+        XCTAssertTrue(fileExists(at: dogPhoto))
+        XCTAssertTrue(fileExists(at: catPhoto))
+    }
+
+    func testReturnThenReassignCanUndoBothMoves() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        let dogsURL = try createDirectory(named: "Dogs", in: directoryURL)
+        let dogPhoto = createFile(named: "a.jpg", in: dogsURL)
+        let store = makeStore()
+        try store.loadExistingProject(from: directoryURL)
+        let dogs = try XCTUnwrap(store.categories.first)
+        try store.createCategory(name: "Cats", shortcut: "c")
+        let cats = try XCTUnwrap(store.categories.last)
+
+        try store.removeCategoryFromCurrentPhoto()
+        try store.categorizeCurrentPhoto(with: cats.id)
+        try store.undoLastCategorization()
+        XCTAssertEqual(store.currentPhoto?.status, .uncategorized)
+        try store.undoLastCategorization()
+
+        XCTAssertEqual(store.currentPhoto?.status, .categorized(dogs.id))
+        XCTAssertTrue(fileExists(at: dogPhoto))
+        XCTAssertTrue(store.undoHistory.isEmpty)
     }
 
     private func loadedStore(directoryURL: URL) throws -> SortSessionStore {

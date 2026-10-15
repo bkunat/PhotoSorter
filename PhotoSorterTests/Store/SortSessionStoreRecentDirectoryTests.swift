@@ -74,7 +74,7 @@ final class SortSessionStoreRecentDirectoryTests: XCTestCase {
         XCTAssertTrue(secondStore.recentDirectories.isEmpty)
     }
 
-    func testOpenRecentDirectoryRestoresSessionFromPersistedBookmark() throws {
+    func testOpenRecentDirectoryRestoresSessionFromPersistedBookmark() async throws {
         let userDefaults = makeTestUserDefaults()
         let directoryURL = try makeTemporaryDirectory()
         createFile(named: "a.jpg", in: directoryURL)
@@ -85,6 +85,7 @@ final class SortSessionStoreRecentDirectoryTests: XCTestCase {
         let recent = try XCTUnwrap(secondStore.recentDirectories.first)
 
         secondStore.openRecentDirectory(recent)
+        try await waitForLoading(secondStore)
 
         XCTAssertEqual(secondStore.selectedDirectoryURL?.path, directoryURL.path)
         XCTAssertEqual(secondStore.photos.map(\.filename), ["a.jpg", "b.png"])

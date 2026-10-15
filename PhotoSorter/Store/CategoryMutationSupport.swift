@@ -57,7 +57,7 @@ struct CategoryMutationSupport {
     }
 
     private func isValidSinglePathComponent(_ name: String) -> Bool {
-        guard name != ".", name != ".." else {
+        guard !name.hasPrefix(".") else {
             return false
         }
 
@@ -88,24 +88,43 @@ struct CategoryMutationSupport {
             return
         }
 
-        let isCaseOnlyRename = oldDirectoryURL.path.compare(
-            newDirectoryURL.path,
-            options: [.caseInsensitive, .diacriticInsensitive]
-        ) == .orderedSame
-
-        if isCaseOnlyRename == false, fileManager.fileExists(atPath: newDirectoryURL.path) {
-            throw SessionError.categoryFolderConflict(newDirectoryURL.path)
-        }
-
         do {
-            if isCaseOnlyRename {
+            if fileManager.fileExists(atPath: newDirectoryURL.path) {
+                let oldAttributes = try fileManager.attributesOfItem(atPath: oldDirectoryURL.path)
+                let newAttributes = try fileManager.attributesOfItem(atPath: newDirectoryURL.path)
+                guard let oldFile = oldAttributes[.systemFileNumber] as? NSNumber,
+                      let newFile = newAttributes[.systemFileNumber] as? NSNumber,
+                      let oldVolume = oldAttributes[.systemNumber] as? NSNumber,
+                      let newVolume = newAttributes[.systemNumber] as? NSNumber,
+                      oldFile == newFile, oldVolume == newVolume else {
+                    throw SessionError.categoryFolderConflict(newDirectoryURL.path)
+                }
+
                 let temporaryURL = oldDirectoryURL.deletingLastPathComponent()
                     .appendingPathComponent(".photosorter-rename-\(UUID().uuidString)", isDirectory: true)
                 try fileManager.moveItem(at: oldDirectoryURL, to: temporaryURL)
-                try fileManager.moveItem(at: temporaryURL, to: newDirectoryURL)
+                do {
+                    try fileManager.moveItem(at: temporaryURL, to: newDirectoryURL)
+                } catch {
+                    let renameError = error
+                    do {
+                        try fileManager.moveItem(at: temporaryURL, to: oldDirectoryURL)
+                        AppLogger.notice("Restored category folder after failed rename: \(oldDirectoryURL.path)", category: .fileSystem)
+                    } catch {
+                        AppLogger.error("Category rename and recovery failed; files remain at \(temporaryURL.path): \(error.localizedDescription)", category: .fileSystem)
+                        throw SessionError.categoryRenameRecoveryRequired(
+                            name: categoryName,
+                            recoveryPath: temporaryURL.path,
+                            underlying: error.localizedDescription
+                        )
+                    }
+                    throw renameError
+                }
             } else {
                 try fileManager.moveItem(at: oldDirectoryURL, to: newDirectoryURL)
             }
+        } catch let error as SessionError {
+            throw error
         } catch {
             throw SessionError.categoryRenameFailed(
                 name: categoryName,
@@ -143,19 +162,20 @@ struct CategoryMutationSupport {
         }
 
         for index in undoHistory.indices {
-            guard undoHistory[index].categoryID == categoryID else {
-                continue
-            }
-
             undoHistory[index] = SortAction(
                 photoID: undoHistory[index].photoID,
-                categoryID: undoHistory[index].categoryID,
-                sourceURL: undoHistory[index].sourceURL,
+                sourceURL: updatedURLByReplacingDirectory(
+                    in: undoHistory[index].sourceURL,
+                    from: oldDirectoryURL,
+                    to: newDirectoryURL
+                ),
                 destinationURL: updatedURLByReplacingDirectory(
                     in: undoHistory[index].destinationURL,
                     from: oldDirectoryURL,
                     to: newDirectoryURL
-                )
+                ),
+                previousStatus: undoHistory[index].previousStatus,
+                nextStatus: undoHistory[index].nextStatus
             )
         }
     }

@@ -47,45 +47,49 @@ final class SortSessionStoreLoadingTests: XCTestCase {
         XCTAssertEqual(store.photos[1].status.assignedCategoryID, store.categories.first?.id)
     }
 
-    func testOpenDirectoryWithoutSubdirectoriesLoadsImmediately() throws {
+    func testOpenDirectoryWithoutSubdirectoriesLoadsAsynchronously() async throws {
         let directoryURL = try makeTemporaryDirectory()
         createFile(named: "a.jpg", in: directoryURL)
         let store = makeStore()
 
         store.openDirectory(directoryURL)
+        try await waitForLoading(store)
 
         XCTAssertEqual(store.selectedDirectoryURL, directoryURL)
         XCTAssertEqual(store.photos.map(\.filename), ["a.jpg"])
         XCTAssertNil(store.pendingProjectOpen)
     }
 
-    func testOpenDirectoryWithImmediateSubdirectoriesSetsPendingProjectOpen() throws {
+    func testOpenDirectoryWithImmediateSubdirectoriesSetsPendingProjectOpen() async throws {
         let directoryURL = try makeTemporaryDirectory()
         try createDirectory(named: "Cats", in: directoryURL)
         let store = makeStore()
 
         store.openDirectory(directoryURL)
+        try await waitForLoading(store)
 
         XCTAssertNil(store.selectedDirectoryURL)
         XCTAssertEqual(store.pendingProjectOpen?.directoryURL, directoryURL)
         XCTAssertEqual(store.pendingProjectOpen?.existingCategoryCount, 1)
     }
 
-    func testConfirmPendingProjectOpenAsExistingProjectLoadsCategoriesAndClearsPrompt() throws {
+    func testConfirmPendingProjectOpenAsExistingProjectLoadsCategoriesAndClearsPrompt() async throws {
         let directoryURL = try makeTemporaryDirectory()
         let catsDirectoryURL = try createDirectory(named: "Cats", in: directoryURL)
         createFile(named: "cat.jpg", in: catsDirectoryURL)
         let store = makeStore()
 
         store.openDirectory(directoryURL)
+        try await waitForLoading(store)
         store.confirmPendingProjectOpen(asExistingProject: true)
+        try await waitForLoading(store)
 
         XCTAssertNil(store.pendingProjectOpen)
         XCTAssertEqual(store.categories.map(\.name), ["Cats"])
         XCTAssertEqual(store.sortedCount, 1)
     }
 
-    func testConfirmPendingProjectOpenAsFlatFolderLoadsOnlyRootPhotosAndClearsPrompt() throws {
+    func testConfirmPendingProjectOpenAsFlatFolderLoadsOnlyRootPhotosAndClearsPrompt() async throws {
         let directoryURL = try makeTemporaryDirectory()
         createFile(named: "root.jpg", in: directoryURL)
         let catsDirectoryURL = try createDirectory(named: "Cats", in: directoryURL)
@@ -93,19 +97,22 @@ final class SortSessionStoreLoadingTests: XCTestCase {
         let store = makeStore()
 
         store.openDirectory(directoryURL)
+        try await waitForLoading(store)
         store.confirmPendingProjectOpen(asExistingProject: false)
+        try await waitForLoading(store)
 
         XCTAssertNil(store.pendingProjectOpen)
         XCTAssertTrue(store.categories.isEmpty)
         XCTAssertEqual(store.photos.map(\.filename), ["root.jpg"])
     }
 
-    func testDismissPendingProjectOpenClearsPromptWithoutLoading() throws {
+    func testDismissPendingProjectOpenClearsPromptWithoutLoading() async throws {
         let directoryURL = try makeTemporaryDirectory()
         try createDirectory(named: "Cats", in: directoryURL)
         let store = makeStore()
 
         store.openDirectory(directoryURL)
+        try await waitForLoading(store)
         store.dismissPendingProjectOpen()
 
         XCTAssertNil(store.pendingProjectOpen)

@@ -16,6 +16,7 @@ enum SessionError: LocalizedError, Equatable {
     case categoryFolderConflict(String)
     case tooManyCategories(categoryCount: Int, shortcutCount: Int)
     case categoryRenameFailed(name: String, underlying: String)
+    case categoryRenameRecoveryRequired(name: String, recoveryPath: String, underlying: String)
     case invalidCategory
     case noCurrentPhoto
     case photoAlreadyCategorized
@@ -42,7 +43,7 @@ enum SessionError: LocalizedError, Equatable {
             "Category Folder Exists"
         case .tooManyCategories:
             "Too Many Categories"
-        case .categoryRenameFailed:
+        case .categoryRenameFailed, .categoryRenameRecoveryRequired:
             "Could Not Rename Category"
         case .invalidCategory:
             "Category Missing"
@@ -96,6 +97,8 @@ enum SessionError: LocalizedError, Equatable {
             """
         case let .categoryRenameFailed(name, _):
             "PhotoSorter could not rename the category folder for `\(name)`."
+        case let .categoryRenameRecoveryRequired(name, recoveryPath, _):
+            "PhotoSorter could not finish renaming `\(name)` or restore its original folder. Your files remain at `\(recoveryPath)`."
         case .invalidCategory:
             "That category no longer exists in the current session."
         case .noCurrentPhoto:
@@ -130,7 +133,7 @@ enum SessionError: LocalizedError, Equatable {
         case .emptyCategoryName:
             "Enter a non-empty folder name for the category."
         case .invalidCategoryName:
-            "Use a single folder name without path separators or traversal components."
+            "Use a single folder name without a leading period or path separators."
         case .unsupportedShortcut:
             "Use one unmodified alphanumeric key, for example `D` or `1`."
         case .duplicateCategoryName:
@@ -143,6 +146,8 @@ enum SessionError: LocalizedError, Equatable {
             "Remove or merge category folders, then reopen the project."
         case .categoryRenameFailed(_, let underlying):
             underlying
+        case .categoryRenameRecoveryRequired(_, _, let underlying):
+            "In Finder, choose Go > Go to Folder and enter the path above. Restore the folder, then reopen it in PhotoSorter. \(underlying)"
         case .photoAlreadyCategorized:
             "Use the arrow keys to find an uncategorized photo or undo the last action."
         case .sourceFileMissing:

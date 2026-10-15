@@ -24,7 +24,7 @@ struct CategoryEditorSheet: View {
             case .create:
                 "Create a category with a single unmodified shortcut key."
             case .edit:
-                "Rename the category or adjust its shortcut."
+                "Renaming a category also renames its folder. Your photos stay inside it."
             }
         }
     }
@@ -47,6 +47,7 @@ struct CategoryEditorSheet: View {
     @FocusState private var focusedField: Field?
 
     let mode: Mode
+    let directoryURL: URL?
     let onSave: (String, String) throws -> Void
     let onCancel: () -> Void
 
@@ -54,10 +55,12 @@ struct CategoryEditorSheet: View {
         mode: Mode,
         initialName: String = "",
         initialShortcut: String = "",
+        directoryURL: URL? = nil,
         onSave: @escaping (String, String) throws -> Void,
         onCancel: @escaping () -> Void = {}
     ) {
         self.mode = mode
+        self.directoryURL = directoryURL
         self.onSave = onSave
         self.onCancel = onCancel
 
@@ -110,6 +113,14 @@ struct CategoryEditorSheet: View {
                 Text("Letters and digits only. The first letter of the category is suggested automatically.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
+
+            if let directoryURL {
+                Text("Destination: " + directoryURL.appendingPathComponent(name.trimmingCharacters(in: .whitespacesAndNewlines)).path)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if let validationMessage {

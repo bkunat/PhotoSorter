@@ -26,4 +26,14 @@ final class SessionAlertTests: XCTestCase {
 
         XCTAssertEqual(SessionAlert(error: error).message, error.errorDescription)
     }
+
+    func testFailedRenameRecoveryIncludesExactPathAndFinderInstructions() {
+        let path = "/tmp/Photos/.photosorter-rename-example"
+        let error = SessionError.categoryRenameRecoveryRequired(name: "Dogs", recoveryPath: path, underlying: "Permission denied")
+        let alert = SessionAlert(error: error)
+
+        XCTAssertTrue(alert.message.contains(path))
+        XCTAssertTrue(alert.message.contains("Go to Folder"))
+        XCTAssertTrue(alert.message.contains("Permission denied"))
+    }
 }

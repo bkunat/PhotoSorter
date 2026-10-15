@@ -4,7 +4,7 @@
 
 import Foundation
 
-enum PhotoStatus: Equatable {
+nonisolated enum PhotoStatus: Equatable, Sendable {
     case uncategorized
     case categorized(Category.ID)
 
@@ -22,7 +22,7 @@ enum PhotoStatus: Equatable {
     }
 }
 
-struct PhotoItem: Identifiable, Equatable {
+nonisolated struct PhotoItem: Identifiable, Equatable, Sendable {
     let id: UUID
     let originalURL: URL
     var currentURL: URL
