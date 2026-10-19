@@ -61,6 +61,78 @@ final class PhotoCarouselPreviewLoaderTests: XCTestCase {
         XCTAssertEqual(probe.urls.count, 1)
     }
 
+    func testEditedPhotoDecodesNewPreviewAtSameURL() async {
+        let probe = DecodeProbe()
+        let loader = PhotoCarouselPreviewLoader { url in
+            probe.record(url)
+            return Self.makeImage()
+        }
+        var photo = PhotoItem(originalURL: URL(fileURLWithPath: "/photo.jpg"))
+        loader.updatePhotos([photo])
+        let loaded = expectation(description: "Original preview loaded")
+        loader.loadPreview(for: photo) { _ in loaded.fulfill() }
+        await fulfillment(of: [loaded], timeout: 2)
+        let originalImage = loader.cachedPreview(for: photo)
+        XCTAssertNotNil(originalImage)
+
+        photo.contentRevision = UUID()
+        loader.updatePhotos([photo])
+        XCTAssertNil(loader.cachedPreview(for: photo))
+        let edited = expectation(description: "Edited preview loaded")
+        loader.loadPreview(for: photo) { image in
+            XCTAssertNotNil(image)
+            XCTAssertFalse(image === originalImage)
+            edited.fulfill()
+        }
+        await fulfillment(of: [edited], timeout: 2)
+        XCTAssertEqual(probe.urls, [photo.currentURL, photo.currentURL])
+    }
+
+    func testEditDuringDecodeDiscardsOldResultAndDoesNotJoinOldRequest() async {
+        let started = expectation(description: "Original decode started")
+        let cancelled = expectation(description: "Original caller released")
+        let edited = expectation(description: "Edited preview loaded while original decode is pending")
+        let oldReturned = expectation(description: "Original decode returned")
+        let gate = DispatchSemaphore(value: 0)
+        let probe = DecodeProbe()
+        let loader = PhotoCarouselPreviewLoader(maximumConcurrentDecodes: 2) { url in
+            let count = probe.begin(url)
+            defer { probe.end() }
+            if count == 1 {
+                started.fulfill()
+                _ = gate.wait(timeout: .now() + 5)
+                oldReturned.fulfill()
+                return Self.makeImage()
+            }
+            return Self.makeImage(width: 4)
+        }
+        let original = PhotoItem(originalURL: URL(fileURLWithPath: "/photo.jpg"))
+        loader.updatePhotos([original])
+        loader.loadPreview(for: original) { image in
+            XCTAssertNil(image)
+            cancelled.fulfill()
+        }
+        await fulfillment(of: [started], timeout: 2)
+        var photo = original
+        photo.contentRevision = UUID()
+        loader.loadPreview(for: photo) { image in
+            XCTAssertEqual(image?.size.width, 4)
+            edited.fulfill()
+        }
+        await fulfillment(of: [cancelled, edited], timeout: 2)
+        gate.signal()
+        await fulfillment(of: [oldReturned], timeout: 2)
+
+        let cached = expectation(description: "Edited preview remains cached")
+        loader.loadPreview(for: photo) { image in
+            XCTAssertEqual(image?.size.width, 4)
+            cached.fulfill()
+        }
+        await fulfillment(of: [cached], timeout: 2)
+        XCTAssertNil(loader.cachedPreview(for: original))
+        XCTAssertEqual(probe.urls.count, 2)
+    }
+
     func testFailedDecodeAtOldPathRetriesMovedPathForAllCallers() async {
         let started = expectation(description: "Old path decode started")
         let completed = expectation(description: "Both callers received moved image")
@@ -235,9 +307,9 @@ final class PhotoCarouselPreviewLoaderTests: XCTestCase {
         XCTAssertNotNil(loader.cachedPreview(for: newPhoto))
     }
 
-    nonisolated private static func makeImage() -> CGImage? {
+    nonisolated private static func makeImage(width: Int = 2) -> CGImage? {
         CGContext(
-            data: nil, width: 2, height: 2, bitsPerComponent: 8, bytesPerRow: 8,
+            data: nil, width: width, height: 2, bitsPerComponent: 8, bytesPerRow: width * 4,
             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )?.makeImage()
     }

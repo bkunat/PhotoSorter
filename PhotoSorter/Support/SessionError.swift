@@ -23,6 +23,11 @@ enum SessionError: LocalizedError, Equatable {
     case sourceFileMissing(String)
     case destinationConflict(String)
     case moveFailed(filename: String, underlying: String)
+    case unsafePhotoFile(String)
+    case recoveryStorageInWorkingDirectory
+    case photoChangedExternally(String)
+    case editFailed(filename: String, underlying: String)
+    case deleteFailed(filename: String, underlying: String)
     case nothingToUndo
     case undoSourceMissing(String)
     case undoConflict(String)
@@ -57,10 +62,20 @@ enum SessionError: LocalizedError, Equatable {
             "File Conflict"
         case .moveFailed:
             "Move Failed"
+        case .unsafePhotoFile:
+            "Cannot Change Photo"
+        case .recoveryStorageInWorkingDirectory:
+            "Recovery Folder Conflict"
+        case .photoChangedExternally:
+            "Photo Changed"
+        case .editFailed:
+            "Could Not Save Photo"
+        case .deleteFailed:
+            "Could Not Delete Photo"
         case .nothingToUndo:
             "Nothing To Undo"
         case .undoSourceMissing:
-            "Moved File Missing"
+            "Photo Missing"
         case .undoConflict:
             "Cannot Restore Photo"
         case .undoFailed:
@@ -111,14 +126,24 @@ enum SessionError: LocalizedError, Equatable {
             "A file already exists at `\(path)`."
         case let .moveFailed(filename, _):
             "PhotoSorter could not move `\(filename)` into its category folder."
+        case let .unsafePhotoFile(filename):
+            "`\(filename)` must be a regular file inside the working folder, without symbolic or hard links."
+        case .recoveryStorageInWorkingDirectory:
+            "The working folder contains PhotoSorter's recovery folder. Choose a narrower working folder so original photos remain outside it."
+        case let .photoChangedExternally(filename):
+            "`\(filename)` changed outside PhotoSorter. This action was stopped to preserve those changes."
+        case let .editFailed(filename, _):
+            "PhotoSorter could not save edits to `\(filename)`."
+        case let .deleteFailed(filename, _):
+            "PhotoSorter could not delete `\(filename)`."
         case .nothingToUndo:
-            "There is no categorization action to reverse."
+            "There is no session action to reverse."
         case let .undoSourceMissing(filename):
-            "`\(filename)` is missing from its category folder, so it cannot be restored."
+            "`\(filename)` is missing from its expected location, so it cannot be restored."
         case let .undoConflict(path):
             "A file already exists at the original location: `\(path)`."
         case let .undoFailed(filename, _):
-            "PhotoSorter could not move `\(filename)` back to its original folder."
+            "PhotoSorter could not restore `\(filename)`."
         case let .unexpected(message):
             message
         }
@@ -160,8 +185,12 @@ enum SessionError: LocalizedError, Equatable {
             "Check whether the moved file was changed outside PhotoSorter."
         case .undoConflict:
             "Move or rename the conflicting file at the original location, then try undo again."
-        case .undoFailed(_, let underlying):
+        case .undoFailed(_, let underlying), .editFailed(_, let underlying), .deleteFailed(_, let underlying):
             underlying
+        case .photoChangedExternally:
+            "Reopen the photo or folder to review the current file before trying again."
+        case .unsafePhotoFile, .recoveryStorageInWorkingDirectory:
+            nil
         case .noFolderSelected, .invalidCategory, .noCurrentPhoto, .nothingToUndo, .unexpected:
             nil
         }

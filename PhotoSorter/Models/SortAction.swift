@@ -6,10 +6,17 @@ import Foundation
 
 struct SortAction: Equatable {
     let photoID: PhotoItem.ID
-    let sourceURL: URL
-    let destinationURL: URL
+    var sourceURL: URL
+    var destinationURL: URL
     let previousStatus: PhotoStatus
     let nextStatus: PhotoStatus
+    var kind: Kind = .move
+
+    enum Kind: Equatable {
+        case move
+        case edit(backupURL: URL, editedDigest: Data)
+        case deletion(photo: PhotoItem, index: Int)
+    }
 
     var categoryID: Category.ID? {
         nextStatus.assignedCategoryID ?? previousStatus.assignedCategoryID

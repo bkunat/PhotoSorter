@@ -30,7 +30,7 @@ struct SessionKeyboardController {
                 guard !event.isARepeat else { return true }
                 guard store.canUndo else { return false }
                 store.perform {
-                    try store.undoLastCategorization()
+                    try store.undoLastAction()
                 }
                 return true
             default:

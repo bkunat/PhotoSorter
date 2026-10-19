@@ -2,6 +2,7 @@
 //  PhotoSorter
 //
 
+import CryptoKit
 import Foundation
 import Observation
 
@@ -39,6 +40,7 @@ final class SortSessionStore {
     var recentDirectories: [RecentDirectory] = []
     private(set) var isLoading = false
 
+    @ObservationIgnored private let recoveryStorage: PhotoRecoveryStorage
     @ObservationIgnored private let fileManager: FileManager
     @ObservationIgnored private let scanner: any SessionScanning
     @ObservationIgnored private let categorySettingsPersistence: CategorySettingsPersistence
@@ -54,9 +56,15 @@ final class SortSessionStore {
         fileManager: FileManager = .default,
         userDefaults: UserDefaults = .standard,
         securityScopedResourceAccess: SecurityScopedResourceAccess? = nil,
-        scanner: (any SessionScanning)? = nil
+        scanner: (any SessionScanning)? = nil,
+        recoveryDirectoryURL: URL? = nil
     ) {
         self.fileManager = fileManager
+        recoveryStorage = PhotoRecoveryStorage(
+            directoryURL: recoveryDirectoryURL ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("PhotoSorter/Recovery", isDirectory: true),
+            fileManager: fileManager
+        )
         self.securityScopedResourceAccess = securityScopedResourceAccess ?? DefaultSecurityScopedResourceAccess()
         self.scanner = scanner ?? SessionScanner(fileManager: fileManager)
         categorySettingsPersistence = CategorySettingsPersistence(userDefaults: userDefaults)
@@ -81,6 +89,8 @@ final class SortSessionStore {
             securityScopedResourceAccess.stopAccessing(scopedDirectoryURL)
         }
     }
+
+    var recoveryDirectoryURL: URL { recoveryStorage.directoryURL }
 
     var currentPhoto: PhotoItem? {
         guard let currentPhotoIndex, photos.indices.contains(currentPhotoIndex) else {
@@ -472,52 +482,123 @@ final class SortSessionStore {
         }
     }
 
-    func undoLastCategorization() throws {
+    func saveEditedPhoto(data: Data, expectedCurrentData: Data? = nil) throws {
         guard !isLoading else { return }
-        guard let lastAction = undoHistory.last else {
-            throw SessionError.nothingToUndo
-        }
-
-        guard let photoIndex = photos.firstIndex(where: { $0.id == lastAction.photoID }) else {
+        guard let index = currentPhotoIndex, photos.indices.contains(index), let selectedDirectoryURL else {
             throw SessionError.noCurrentPhoto
         }
-
-        guard fileManager.fileExists(atPath: lastAction.destinationURL.path) else {
-            throw SessionError.undoSourceMissing(lastAction.destinationURL.lastPathComponent)
-        }
-
-        guard !fileManager.fileExists(atPath: lastAction.sourceURL.path) else {
-            throw SessionError.undoConflict(lastAction.sourceURL.path)
-        }
-
-        AppLogger.info(
-            "Undoing categorization for \(lastAction.sourceURL.lastPathComponent)",
-            category: .fileSystem
-        )
-
+        let photo = photos[index]
         do {
-            try fileManager.moveItem(at: lastAction.destinationURL, to: lastAction.sourceURL)
+            try recoveryStorage.validateRegularFile(photo.currentURL, inside: selectedDirectoryURL)
+            if let expectedCurrentData, try Data(contentsOf: photo.currentURL) != expectedCurrentData {
+                throw SessionError.photoChangedExternally(photo.filename)
+            }
+            let backupURL = try recoveryStorage.backup(photo.currentURL, workingDirectory: selectedDirectoryURL)
+            try data.write(to: photo.currentURL, options: .atomic)
+            photos[index].contentRevision = UUID()
+            var action = SortAction(photoID: photo.id, sourceURL: photo.currentURL, destinationURL: photo.currentURL,
+                                    previousStatus: photo.status, nextStatus: photo.status)
+            action.kind = .edit(backupURL: backupURL, editedDigest: Data(SHA256.hash(data: data)))
+            undoHistory.append(action)
+            activeFeedback = SessionFeedback(message: "Saved edits to \(photo.filename)", categoryID: photo.status.assignedCategoryID, systemImage: "checkmark.circle.fill")
+            AppLogger.info("Saved edits to \(photo.currentURL.path)", category: .fileSystem)
+        } catch let error as SessionError {
+            throw error
         } catch {
-            throw SessionError.undoFailed(
-                filename: lastAction.sourceURL.lastPathComponent,
-                underlying: error.localizedDescription
-            )
+            throw SessionError.editFailed(filename: photo.filename, underlying: error.localizedDescription)
         }
+    }
 
-        photos[photoIndex].currentURL = lastAction.sourceURL
-        photos[photoIndex].status = lastAction.previousStatus
+    func deleteCurrentPhoto() throws {
+        guard !isLoading else { return }
+        guard let index = currentPhotoIndex, photos.indices.contains(index), let selectedDirectoryURL else {
+            throw SessionError.noCurrentPhoto
+        }
+        let photo = photos[index]
+        do {
+            let backupURL = try recoveryStorage.backup(photo.currentURL, workingDirectory: selectedDirectoryURL)
+            try fileManager.removeItem(at: photo.currentURL)
+            var action = SortAction(photoID: photo.id, sourceURL: photo.currentURL, destinationURL: backupURL,
+                                    previousStatus: photo.status, nextStatus: photo.status)
+            action.kind = .deletion(photo: photo, index: index)
+            undoHistory.append(action)
+            photos.remove(at: index)
+            currentPhotoIndex = photos.isEmpty ? nil : min(index, photos.count - 1)
+            activeFeedback = SessionFeedback(message: "Deleted \(photo.filename). Undo to restore.", categoryID: nil, systemImage: "trash")
+            AppLogger.info("Deleted \(photo.currentURL.path); recovery copy at \(backupURL.path)", category: .fileSystem)
+        } catch let error as SessionError {
+            throw error
+        } catch {
+            throw SessionError.deleteFailed(filename: photo.filename, underlying: error.localizedDescription)
+        }
+    }
+
+    func undoLastCategorization() throws {
+        try undoLastAction()
+    }
+
+    func undoLastAction() throws {
+        guard !isLoading else { return }
+        guard let action = undoHistory.last else { throw SessionError.nothingToUndo }
+        guard let selectedDirectoryURL else { throw SessionError.noFolderSelected }
+        let photoIndex: Int
+        do {
+            switch action.kind {
+            case let .deletion(photo, index):
+                guard !fileManager.fileExists(atPath: action.sourceURL.path) else {
+                    throw SessionError.undoConflict(action.sourceURL.path)
+                }
+                try recoveryStorage.validateRegularFile(action.destinationURL, inside: recoveryDirectoryURL)
+                try validateRestoreDirectory(action.sourceURL, workingDirectory: selectedDirectoryURL)
+                try fileManager.copyItem(at: action.destinationURL, to: action.sourceURL)
+                photoIndex = min(index, photos.count)
+                var restoredPhoto = photo
+                restoredPhoto.contentRevision = UUID()
+                photos.insert(restoredPhoto, at: photoIndex)
+            case let .edit(backupURL, editedDigest):
+                guard let index = photos.firstIndex(where: { $0.id == action.photoID }) else {
+                    throw SessionError.noCurrentPhoto
+                }
+                try recoveryStorage.validateRegularFile(action.sourceURL, inside: selectedDirectoryURL)
+                let currentData = try Data(contentsOf: action.sourceURL)
+                guard Data(SHA256.hash(data: currentData)) == editedDigest else {
+                    throw SessionError.photoChangedExternally(action.sourceURL.lastPathComponent)
+                }
+                try recoveryStorage.validateRegularFile(backupURL, inside: recoveryDirectoryURL)
+                try Data(contentsOf: backupURL).write(to: action.sourceURL, options: .atomic)
+                photos[index].contentRevision = UUID()
+                photoIndex = index
+            case .move:
+                guard let index = photos.firstIndex(where: { $0.id == action.photoID }) else {
+                    throw SessionError.noCurrentPhoto
+                }
+                guard fileManager.fileExists(atPath: action.destinationURL.path) else {
+                    throw SessionError.undoSourceMissing(action.destinationURL.lastPathComponent)
+                }
+                guard !fileManager.fileExists(atPath: action.sourceURL.path) else {
+                    throw SessionError.undoConflict(action.sourceURL.path)
+                }
+                try fileManager.moveItem(at: action.destinationURL, to: action.sourceURL)
+                photos[index].currentURL = action.sourceURL
+                photos[index].status = action.previousStatus
+                photoIndex = index
+            }
+        } catch let error as SessionError {
+            throw error
+        } catch {
+            throw SessionError.undoFailed(filename: action.sourceURL.lastPathComponent, underlying: error.localizedDescription)
+        }
         setCurrentPhotoIndex(photoIndex)
         undoHistory.removeLast()
-        activeFeedback = SessionFeedback(
-            message: "Restored \(lastAction.sourceURL.lastPathComponent)",
-            categoryID: lastAction.previousStatus.assignedCategoryID,
-            systemImage: "arrow.uturn.backward.circle.fill"
-        )
+        activeFeedback = SessionFeedback(message: "Restored \(action.sourceURL.lastPathComponent)",
+                                         categoryID: action.previousStatus.assignedCategoryID, systemImage: "arrow.uturn.backward.circle.fill")
+        AppLogger.info("Restored \(action.sourceURL.path)", category: .fileSystem)
+    }
 
-        AppLogger.info(
-            "Restored \(lastAction.sourceURL.lastPathComponent) to \(lastAction.sourceURL.path)",
-            category: .fileSystem
-        )
+    private func validateRestoreDirectory(_ fileURL: URL, workingDirectory: URL) throws {
+        let root = workingDirectory.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        let parent = fileURL.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        guard parent.starts(with: root) else { throw SessionError.unsafePhotoFile(fileURL.lastPathComponent) }
     }
 
     func removeCategoryFromCurrentPhoto() throws {

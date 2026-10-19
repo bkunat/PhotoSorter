@@ -15,6 +15,7 @@ final class PhotoCarouselItem: NSCollectionViewItem {
     private let progressIndicator = NSProgressIndicator()
     private var representedPhotoID: PhotoItem.ID?
     private var representedPhotoURL: URL?
+    private var representedContentRevision: UUID?
     var onSelect: (() -> Void)?
 
     override var isSelected: Bool {
@@ -98,6 +99,7 @@ final class PhotoCarouselItem: NSCollectionViewItem {
         super.prepareForReuse()
         representedPhotoID = nil
         representedPhotoURL = nil
+        representedContentRevision = nil
         previewButton.image = nil
         categoryBadge.isHidden = true
         categoryLabel.stringValue = ""
@@ -112,9 +114,10 @@ final class PhotoCarouselItem: NSCollectionViewItem {
         category: Category?,
         previewLoader: PhotoCarouselPreviewLoader
     ) {
-        let samePhoto = representedPhotoID == photo.id
+        let samePhoto = representedPhotoID == photo.id && representedContentRevision == photo.contentRevision
         representedPhotoID = photo.id
         representedPhotoURL = photo.currentURL
+        representedContentRevision = photo.contentRevision
         filenameLabel.stringValue = photo.filename
         categoryLabel.stringValue = category?.name ?? ""
         categoryDot.layer?.backgroundColor = category.map { CategoryColorPalette.color(for: $0).cgColor }
@@ -128,7 +131,8 @@ final class PhotoCarouselItem: NSCollectionViewItem {
         progressIndicator.startAnimation(nil)
         previewLoader.loadPreview(for: photo, priority: .normal) { [weak self] image in
             guard let self, self.representedPhotoID == photo.id,
-                  self.representedPhotoURL == photo.currentURL else { return }
+                  self.representedPhotoURL == photo.currentURL,
+                  self.representedContentRevision == photo.contentRevision else { return }
             self.progressIndicator.stopAnimation(nil)
             self.previewButton.image = image ?? NSImage(
                 systemSymbolName: "photo.badge.exclamationmark",

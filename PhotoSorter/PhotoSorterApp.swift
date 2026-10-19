@@ -37,9 +37,9 @@ struct PhotoSorterApp: App {
                 .keyboardShortcut("n", modifiers: [.command])
                 .disabled(!store.canCreateCategories || sessionCommandsEnabled != true)
 
-                Button("Undo Last Move") {
+                Button("Undo Last Action") {
                     store.perform {
-                        try store.undoLastCategorization()
+                        try store.undoLastAction()
                     }
                 }
                 .keyboardShortcut("z")

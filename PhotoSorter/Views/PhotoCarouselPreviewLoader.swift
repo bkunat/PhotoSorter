@@ -9,6 +9,7 @@ import ImageIO
 final class PhotoCarouselPreviewLoader {
     private struct Request {
         var url: URL
+        let contentRevision: UUID
         let token: UUID
         let operation: BlockOperation
         var completions: [(NSImage?) -> Void]
@@ -36,24 +37,26 @@ final class PhotoCarouselPreviewLoader {
     }
 
     func cachedPreview(for photo: PhotoItem) -> NSImage? {
-        cache.object(forKey: photo.id as NSUUID)
+        cache.object(forKey: photo.contentRevision as NSUUID)
     }
 
     func updatePhotos(_ photos: [PhotoItem]) {
         let updatedIDs = Set(photos.map(\.id))
         if updatedIDs != photoIDs {
-            for (id, request) in requests where !updatedIDs.contains(id) {
-                request.operation.cancel()
-                requests.removeValue(forKey: id)
-                request.completions.forEach { $0(nil) }
+            for id in requests.keys where !updatedIDs.contains(id) {
+                cancelRequest(for: id)
             }
             if !photoIDs.isEmpty, photoIDs.isDisjoint(with: updatedIDs) {
                 cache.removeAllObjects()
             }
             photoIDs = updatedIDs
         }
-        for photo in photos where requests[photo.id] != nil {
-            requests[photo.id]?.url = photo.currentURL
+        for photo in photos {
+            if let request = requests[photo.id], request.contentRevision != photo.contentRevision {
+                cancelRequest(for: photo.id)
+            } else {
+                requests[photo.id]?.url = photo.currentURL
+            }
         }
     }
 
@@ -62,6 +65,9 @@ final class PhotoCarouselPreviewLoader {
         priority: Operation.QueuePriority = .veryHigh,
         completion: @escaping (NSImage?) -> Void
     ) {
+        if let request = requests[photo.id], request.contentRevision != photo.contentRevision {
+            cancelRequest(for: photo.id)
+        }
         if let image = cachedPreview(for: photo) {
             completion(image)
             return
@@ -75,10 +81,11 @@ final class PhotoCarouselPreviewLoader {
             requests[photo.id] = request
             return
         }
-        enqueue(id: photo.id, url: photo.currentURL, completions: [completion], priority: priority)
+        enqueue(id: photo.id, url: photo.currentURL, contentRevision: photo.contentRevision, completions: [completion], priority: priority)
     }
 
     func preload(photos: [PhotoItem], around currentIndex: Int) {
+        updatePhotos(photos)
         guard photos.indices.contains(currentIndex) else { return }
         let range = max(0, currentIndex - 2)...min(photos.count - 1, currentIndex + 4)
         let candidates = photos[range]
@@ -100,15 +107,22 @@ final class PhotoCarouselPreviewLoader {
         }
         for photo in candidates where cachedPreview(for: photo) == nil && requests[photo.id] == nil {
             enqueue(
-                id: photo.id, url: photo.currentURL, completions: [],
+                id: photo.id, url: photo.currentURL, contentRevision: photo.contentRevision, completions: [],
                 priority: photo.id == focusedID ? .veryHigh : .low
             )
         }
     }
 
+    private func cancelRequest(for id: PhotoItem.ID) {
+        guard let request = requests.removeValue(forKey: id) else { return }
+        request.operation.cancel()
+        request.completions.forEach { $0(nil) }
+    }
+
     private func enqueue(
         id: PhotoItem.ID,
         url: URL,
+        contentRevision: UUID,
         completions: [(NSImage?) -> Void],
         priority: Operation.QueuePriority = .low
     ) {
@@ -121,7 +135,7 @@ final class PhotoCarouselPreviewLoader {
             }
         }
         operation.queuePriority = priority
-        requests[id] = Request(url: url, token: token, operation: operation, completions: completions)
+        requests[id] = Request(url: url, contentRevision: contentRevision, token: token, operation: operation, completions: completions)
         decodeQueue.addOperation(operation)
     }
 
@@ -131,7 +145,7 @@ final class PhotoCarouselPreviewLoader {
 
         // A sort may move the file before a queued decode opens its old path.
         if image == nil, request.url != url {
-            enqueue(id: id, url: request.url, completions: request.completions, priority: request.operation.queuePriority)
+            enqueue(id: id, url: request.url, contentRevision: request.contentRevision, completions: request.completions, priority: request.operation.queuePriority)
             return
         }
 
@@ -139,7 +153,7 @@ final class PhotoCarouselPreviewLoader {
             NSImage(cgImage: $0, size: NSSize(width: CGFloat($0.width), height: CGFloat($0.height)))
         }
         if let image, let preview {
-            cache.setObject(preview, forKey: id as NSUUID, cost: image.bytesPerRow * image.height)
+            cache.setObject(preview, forKey: request.contentRevision as NSUUID, cost: image.bytesPerRow * image.height)
         } else {
             AppLogger.error("Preview unavailable for \(request.url.lastPathComponent)", category: .ui)
         }

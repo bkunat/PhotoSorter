@@ -11,6 +11,8 @@ struct ContentView: View {
     @Bindable var store: SortSessionStore
     @State private var previewURL: URL?
     @State private var showsKeyboardHelp = false
+    @State private var editingPhoto: PhotoItem?
+    @State private var photoPendingDeletion: PhotoItem?
 
     private let folderPicker = FolderPicker()
     private let keyboardController = SessionKeyboardController()
@@ -86,12 +88,26 @@ struct ContentView: View {
                     .disabled(!store.canCreateCategories)
                     .help("Add a category (⌘N)")
                 Button("Undo", systemImage: "arrow.uturn.backward") {
-                    store.perform { try store.undoLastCategorization() }
+                    store.perform { try store.undoLastAction() }
                 }
                 .disabled(!store.canUndo)
-                .help("Undo the last move (⌘Z)")
+                .help("Undo the last edit, deletion, or move (⌘Z)")
             }
             ToolbarItemGroup {
+                Button("Edit Photo", systemImage: "slider.horizontal.3") {
+                    previewURL = nil
+                    editingPhoto = store.currentPhoto
+                }
+                .labelStyle(.titleAndIcon)
+                .keyboardShortcut("e")
+                .disabled(store.currentPhoto == nil || !sessionCommandsEnabled)
+                .help("Edit the selected photo (⌘E)")
+                Button("Delete Photo", systemImage: "trash") {
+                    photoPendingDeletion = store.currentPhoto
+                }
+                .keyboardShortcut(.delete, modifiers: .command)
+                .disabled(store.currentPhoto == nil || !sessionCommandsEnabled)
+                .help("Delete the selected photo with session undo (⌘⌫)")
                 Button("Return to Unsorted", systemImage: "tray.and.arrow.down") {
                     store.perform { try store.removeCategoryFromCurrentPhoto() }
                 }
@@ -105,6 +121,11 @@ struct ContentView: View {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 }
                 .disabled(store.selectedDirectoryURL == nil || store.isLoading)
+                Button("Show Recovery Folder", systemImage: "externaldrive.badge.timemachine") {
+                    NSWorkspace.shared.open(store.recoveryDirectoryURL)
+                }
+                .disabled(!FileManager.default.fileExists(atPath: store.recoveryDirectoryURL.path))
+                .help("Show retained originals and deleted photos in Finder")
                 Button("Keyboard Shortcuts", systemImage: "keyboard") { showsKeyboardHelp.toggle() }
                     .popover(isPresented: $showsKeyboardHelp) { KeyboardShortcutsPanelView().padding(20) }
             }
@@ -124,6 +145,25 @@ struct ContentView: View {
             } onCancel: {
                 store.dismissCategorySheet()
             }
+        }
+        .sheet(item: $editingPhoto) { photo in
+            PhotoEditorSheet(photo: photo) { data, originalData in
+                guard store.currentPhoto?.id == photo.id else { throw SessionError.noCurrentPhoto }
+                try store.saveEditedPhoto(data: data, expectedCurrentData: originalData)
+            }
+        }
+        .confirmationDialog("Delete Photo?", isPresented: Binding(
+            get: { photoPendingDeletion != nil },
+            set: { if !$0 { photoPendingDeletion = nil } }
+        ), titleVisibility: .visible) {
+            Button("Delete Photo", role: .destructive) {
+                guard let photo = photoPendingDeletion, store.currentPhoto?.id == photo.id else { return }
+                store.perform { try store.deleteCurrentPhoto() }
+                photoPendingDeletion = nil
+            }
+            Button("Cancel", role: .cancel) { photoPendingDeletion = nil }
+        } message: {
+            Text("Remove “\(photoPendingDeletion?.filename ?? "")” from this folder? You can undo this during the current session. A recovery copy is kept in PhotoSorter’s Application Support folder.")
         }
         .confirmationDialog("Use Folders as Categories?", isPresented: pendingProjectPromptIsPresented, titleVisibility: .visible) {
             Button("Use Existing Categories") { store.confirmPendingProjectOpen(asExistingProject: true) }
@@ -159,6 +199,7 @@ struct ContentView: View {
     private var sessionCommandsEnabled: Bool {
         !store.isLoading && !store.isPresentingCategorySheet && store.activeAlert == nil
             && store.pendingProjectOpen == nil && previewURL == nil && !showsKeyboardHelp
+            && editingPhoto == nil && photoPendingDeletion == nil
     }
 
     private func chooseFolder() {

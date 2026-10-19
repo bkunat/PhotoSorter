@@ -28,6 +28,7 @@ nonisolated struct PhotoItem: Identifiable, Equatable, Sendable {
     var currentURL: URL
     let filename: String
     var status: PhotoStatus
+    var contentRevision = UUID()
 
     init(
         id: UUID = UUID(),

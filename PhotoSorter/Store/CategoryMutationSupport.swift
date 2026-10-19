@@ -162,21 +162,19 @@ struct CategoryMutationSupport {
         }
 
         for index in undoHistory.indices {
-            undoHistory[index] = SortAction(
-                photoID: undoHistory[index].photoID,
-                sourceURL: updatedURLByReplacingDirectory(
-                    in: undoHistory[index].sourceURL,
-                    from: oldDirectoryURL,
-                    to: newDirectoryURL
-                ),
-                destinationURL: updatedURLByReplacingDirectory(
-                    in: undoHistory[index].destinationURL,
-                    from: oldDirectoryURL,
-                    to: newDirectoryURL
-                ),
-                previousStatus: undoHistory[index].previousStatus,
-                nextStatus: undoHistory[index].nextStatus
+            undoHistory[index].sourceURL = updatedURLByReplacingDirectory(
+                in: undoHistory[index].sourceURL, from: oldDirectoryURL, to: newDirectoryURL
             )
+            undoHistory[index].destinationURL = updatedURLByReplacingDirectory(
+                in: undoHistory[index].destinationURL, from: oldDirectoryURL, to: newDirectoryURL
+            )
+            if case let .deletion(savedPhoto, photoIndex) = undoHistory[index].kind {
+                var photo = savedPhoto
+                photo.currentURL = updatedURLByReplacingDirectory(
+                    in: photo.currentURL, from: oldDirectoryURL, to: newDirectoryURL
+                )
+                undoHistory[index].kind = .deletion(photo: photo, index: photoIndex)
+            }
         }
     }
 

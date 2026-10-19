@@ -32,7 +32,7 @@ struct EmptySessionView: View {
                     }
                 }
 
-                Text("Files move into category folders immediately. Use ⌘Z to undo moves during this session. Category names and shortcuts are remembered on this Mac.")
+                Text("Files move into category folders immediately. Use ⌘Z to undo edits, deletions, and moves during this session. Category names and shortcuts are remembered on this Mac.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

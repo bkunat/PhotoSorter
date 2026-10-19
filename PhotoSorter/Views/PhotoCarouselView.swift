@@ -57,6 +57,7 @@ private struct PhotoPreviewView: View {
     @State private var isLoading = true
     @State private var requestID = UUID()
     @State private var displayedPhotoID: PhotoItem.ID?
+    @State private var displayedContentRevision: UUID?
 
     var body: some View {
         VStack(spacing: 10) {
@@ -98,10 +99,11 @@ private struct PhotoPreviewView: View {
         .onChange(of: photo, initial: true) { _, photo in
             let request = UUID()
             requestID = request
-            if displayedPhotoID != photo.id {
+            if displayedPhotoID != photo.id || displayedContentRevision != photo.contentRevision {
                 image = nil
             }
             displayedPhotoID = photo.id
+            displayedContentRevision = photo.contentRevision
             isLoading = true
             previewLoader.loadPreview(for: photo) { preview in
                 guard requestID == request else { return }
