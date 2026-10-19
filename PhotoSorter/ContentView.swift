@@ -49,7 +49,8 @@ struct ContentView: View {
                 recentDirectories: store.recentDirectories,
                 onChooseFolder: chooseFolder,
                 onOpenRecentDirectory: store.openRecentDirectory(_:),
-                onSelectPhoto: store.selectPhoto(at:)
+                onSelectPhoto: store.selectPhoto(at:),
+                onPhotoAction: handlePhotoAction
             )
             .frame(minWidth: 500)
         }
@@ -211,6 +212,41 @@ struct ContentView: View {
     private func categorizeCurrentPhoto(with categoryID: Category.ID) {
         guard store.canCategorizeCurrentPhoto else { return }
         store.perform { try store.categorizeCurrentPhoto(with: categoryID) }
+    }
+
+    private func handlePhotoAction(_ photoID: PhotoItem.ID, _ action: PhotoContextAction) {
+        guard sessionCommandsEnabled,
+              let index = store.photos.firstIndex(where: { $0.id == photoID }) else { return }
+        store.selectPhoto(at: index)
+        let photo = store.photos[index]
+        switch action {
+        case .edit:
+            editingPhoto = photo
+        case let .categorize(categoryID):
+            if let categoryID {
+                categorizeCurrentPhoto(with: categoryID)
+            } else {
+                store.perform { try store.removeCategoryFromCurrentPhoto() }
+            }
+        case .delete:
+            photoPendingDeletion = photo
+        case .copy:
+            store.perform {
+                guard FileManager.default.fileExists(atPath: photo.currentURL.path) else {
+                    throw SessionError.sourceFileMissing(photo.filename)
+                }
+                NSPasteboard.general.clearContents()
+                guard NSPasteboard.general.writeObjects([photo.currentURL as NSURL]) else {
+                    throw SessionError.unexpected("The photo could not be copied to the clipboard.")
+                }
+                store.activeFeedback = SessionFeedback(message: "Copied \(photo.filename)", categoryID: nil, systemImage: "doc.on.doc")
+                AppLogger.debug("Copied \(photo.filename) to the clipboard", category: .ui)
+            }
+        case .quickLook:
+            previewURL = photo.currentURL
+        case .showInFinder:
+            NSWorkspace.shared.activateFileViewerSelecting([photo.currentURL])
+        }
     }
 
     private var pendingProjectPromptIsPresented: Binding<Bool> {

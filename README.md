@@ -19,12 +19,13 @@ It is designed for photos that are not part of your macOS Photos library. Choose
 - Undo edits, deletions, and file moves with Command-Z during the current session.
 - Reopen folders with saved category names and shortcuts on this Mac.
 - Browse a large photo preview with a compact filmstrip.
+- Right-click a filmstrip photo to edit it, change its category, copy the file, inspect it with Quick Look, show it in Finder, or delete it.
 
 Category settings are stored locally in the app's preferences. Photos remain ordinary files in your folders. Undo history lasts for the current session; opening another folder resets it.
 
 ## Edit and recover photos
 
-Select **Edit** to open the editor with rotation and crop controls ready to use. Adjust the **Rotate** slider or enter an angle for fine rotation from −45° to 45° in 0.1° steps. Fine rotation trims the edges to keep the frame filled. **Rotate 90°** makes a quarter turn. Drag the crop frame’s corners to resize it, drag inside the frame to move it, or adjust the crop controls. **Undo** reverses each adjustment. Select **Save** to apply rotation and cropping together, or **Cancel** to discard your edits.
+Select **Edit** to open the editor with rotation and cropping ready to use. Adjust the **Rotate** slider or enter an angle for fine rotation from −45° to 45° in 0.1° steps. Fine rotation trims the edges to keep the frame filled. **Rotate 90°** makes a quarter turn. Drag the crop frame’s corners to resize it, or drag inside the frame to move it. **Reset Crop** restores the full frame. **Undo** reverses each adjustment. Select **Save** to apply rotation and cropping together, or **Cancel** to discard your edits.
 
 Before saving an edit or deleting a photo, PhotoSorter copies the original file into its Application Support directory, outside your sorting folder. Select **Show Recovery Folder** to find these copies in Finder. Each copy includes a `source-path.txt` file with its previous location. Recovery copies remain after you quit or open another folder; you can remove them manually when you no longer need them.
 

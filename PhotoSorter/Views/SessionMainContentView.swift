@@ -15,6 +15,7 @@ struct SessionMainContentView: View {
     let onChooseFolder: () -> Void
     let onOpenRecentDirectory: (RecentDirectory) -> Void
     let onSelectPhoto: (Int) -> Void
+    let onPhotoAction: (PhotoItem.ID, PhotoContextAction) -> Void
 
     var body: some View {
         Group {
@@ -35,6 +36,7 @@ struct SessionMainContentView: View {
                     currentPhotoIndex: currentPhotoIndex,
                     activeFeedback: activeFeedback,
                     onSelectPhoto: onSelectPhoto,
+                    onPhotoAction: onPhotoAction,
                     onChooseAnotherFolder: onChooseFolder
                 )
             }

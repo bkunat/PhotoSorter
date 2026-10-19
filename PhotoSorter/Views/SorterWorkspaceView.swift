@@ -13,6 +13,7 @@ struct SorterWorkspaceView: View {
     let currentPhotoIndex: Int?
     let activeFeedback: SessionFeedback?
     let onSelectPhoto: (Int) -> Void
+    let onPhotoAction: (PhotoItem.ID, PhotoContextAction) -> Void
     let onChooseAnotherFolder: () -> Void
 
     var body: some View {
@@ -21,7 +22,8 @@ struct SorterWorkspaceView: View {
                 photos: photos,
                 categoriesByID: stats.categoriesByID,
                 currentPhotoIndex: currentPhotoIndex,
-                onSelectPhoto: onSelectPhoto
+                onSelectPhoto: onSelectPhoto,
+                onPhotoAction: onPhotoAction
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 

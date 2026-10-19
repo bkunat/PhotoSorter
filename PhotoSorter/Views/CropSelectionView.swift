@@ -83,7 +83,33 @@ struct CropSelectionView: View {
                     dragAction = nil
                     onEnd()
                 })
-            .accessibilityHidden(true)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Crop frame")
+            .accessibilityValue("Left \(Int((rect.minX * 100).rounded())) percent, top \(Int((rect.minY * 100).rounded())) percent, width \(Int((rect.width * 100).rounded())) percent, height \(Int((rect.height * 100).rounded())) percent")
+            .accessibilityAction(named: Text("Move left")) {
+                onChange(CropSelectionGeometry.moved(rect, translation: CGSize(width: -0.01, height: 0)))
+            }
+            .accessibilityAction(named: Text("Move right")) {
+                onChange(CropSelectionGeometry.moved(rect, translation: CGSize(width: 0.01, height: 0)))
+            }
+            .accessibilityAction(named: Text("Move up")) {
+                onChange(CropSelectionGeometry.moved(rect, translation: CGSize(width: 0, height: -0.01)))
+            }
+            .accessibilityAction(named: Text("Move down")) {
+                onChange(CropSelectionGeometry.moved(rect, translation: CGSize(width: 0, height: 0.01)))
+            }
+            .accessibilityAction(named: Text("Increase width")) {
+                onChange(CropSelectionGeometry.resized(rect, corner: .bottomRight, to: CGPoint(x: rect.maxX + 0.01, y: rect.maxY)))
+            }
+            .accessibilityAction(named: Text("Decrease width")) {
+                onChange(CropSelectionGeometry.resized(rect, corner: .bottomRight, to: CGPoint(x: rect.maxX - 0.01, y: rect.maxY)))
+            }
+            .accessibilityAction(named: Text("Increase height")) {
+                onChange(CropSelectionGeometry.resized(rect, corner: .bottomRight, to: CGPoint(x: rect.maxX, y: rect.maxY + 0.01)))
+            }
+            .accessibilityAction(named: Text("Decrease height")) {
+                onChange(CropSelectionGeometry.resized(rect, corner: .bottomRight, to: CGPoint(x: rect.maxX, y: rect.maxY - 0.01)))
+            }
         }
     }
 

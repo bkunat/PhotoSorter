@@ -9,6 +9,7 @@ struct PhotoCarouselView: View {
     let categoriesByID: [Category.ID: Category]
     let currentPhotoIndex: Int?
     let onSelectPhoto: (Int) -> Void
+    let onPhotoAction: (PhotoItem.ID, PhotoContextAction) -> Void
 
     @State private var previewLoader = PhotoCarouselPreviewLoader()
 
@@ -29,7 +30,8 @@ struct PhotoCarouselView: View {
                 categoriesByID: categoriesByID,
                 currentPhotoIndex: currentPhotoIndex,
                 previewLoader: previewLoader,
-                onSelectPhoto: onSelectPhoto
+                onSelectPhoto: onSelectPhoto,
+                onPhotoAction: onPhotoAction
             )
             .frame(height: 112)
             .accessibilityLabel("Photo filmstrip")
@@ -121,6 +123,7 @@ private struct PhotoFilmstripView: NSViewRepresentable {
     let currentPhotoIndex: Int?
     let previewLoader: PhotoCarouselPreviewLoader
     let onSelectPhoto: (Int) -> Void
+    let onPhotoAction: (PhotoItem.ID, PhotoContextAction) -> Void
 
     func makeNSView(context: Context) -> PhotoCarouselContainerView {
         PhotoCarouselContainerView(previewLoader: previewLoader)
@@ -128,6 +131,7 @@ private struct PhotoFilmstripView: NSViewRepresentable {
 
     func updateNSView(_ nsView: PhotoCarouselContainerView, context: Context) {
         nsView.onSelectPhoto = onSelectPhoto
+        nsView.onPhotoAction = onPhotoAction
         nsView.update(photos: photos, categoriesByID: categoriesByID, currentPhotoIndex: currentPhotoIndex)
     }
 }

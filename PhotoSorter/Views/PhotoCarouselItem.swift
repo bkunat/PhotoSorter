@@ -7,8 +7,8 @@ import AppKit
 final class PhotoCarouselItem: NSCollectionViewItem {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("PhotoCarouselItem")
 
-    private let previewButton = NSButton()
-    private let filenameLabel = NSTextField(labelWithString: "")
+    private let previewButton = PreviewButton()
+    private let filenameLabel = FilenameLabel(labelWithString: "")
     private let categoryBadge = CategoryBadgeView()
     private let categoryDot = NSView()
     private let categoryLabel = NSTextField(labelWithString: "")
@@ -17,13 +17,16 @@ final class PhotoCarouselItem: NSCollectionViewItem {
     private var representedPhotoURL: URL?
     private var representedContentRevision: UUID?
     var onSelect: (() -> Void)?
+    var onContextMenu: (() -> NSMenu?)?
 
     override var isSelected: Bool {
         didSet { updateSelectionAppearance() }
     }
 
     override func loadView() {
-        view = NSView()
+        let itemView = ItemView()
+        itemView.makeMenu = { [weak self] in self?.onContextMenu?() }
+        view = itemView
         view.wantsLayer = true
         view.layer?.cornerRadius = 6
 
@@ -34,6 +37,7 @@ final class PhotoCarouselItem: NSCollectionViewItem {
         previewButton.target = self
         previewButton.action = #selector(selectPhoto)
         previewButton.setAccessibilityHelp("Select photo")
+        previewButton.makeMenu = { [weak self] in self?.onContextMenu?() }
 
         progressIndicator.translatesAutoresizingMaskIntoConstraints = false
         progressIndicator.style = .spinning
@@ -106,6 +110,7 @@ final class PhotoCarouselItem: NSCollectionViewItem {
         categoryDot.layer?.backgroundColor = nil
         progressIndicator.stopAnimation(nil)
         onSelect = nil
+        onContextMenu = nil
     }
 
     func configure(
@@ -152,6 +157,33 @@ final class PhotoCarouselItem: NSCollectionViewItem {
 
     @objc private func selectPhoto() {
         onSelect?()
+    }
+
+    private final class ItemView: NSView {
+        var makeMenu: (() -> NSMenu?)?
+
+        override func menu(for event: NSEvent) -> NSMenu? { makeMenu?() }
+    }
+
+    private final class PreviewButton: NSButton {
+        var makeMenu: (() -> NSMenu?)?
+
+        override func menu(for event: NSEvent) -> NSMenu? { makeMenu?() }
+
+        override func rightMouseDown(with event: NSEvent) {
+            guard let menu = menu(for: event) else { return }
+            NSMenu.popUpContextMenu(menu, with: event, for: self)
+        }
+
+        override func accessibilityPerformShowMenu() -> Bool {
+            guard isEnabled, let menu = makeMenu?() else { return false }
+            menu.popUp(positioning: nil, at: NSPoint(x: bounds.minX, y: bounds.maxY), in: self)
+            return true
+        }
+    }
+
+    private final class FilenameLabel: NSTextField {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 
     private final class CategoryBadgeView: NSView {

@@ -15,6 +15,7 @@ final class PhotoCarouselContainerView: NSView, NSCollectionViewDataSource, NSCo
     private var isUpdatingDocumentFrame = false
 
     var onSelectPhoto: ((Int) -> Void)?
+    var onPhotoAction: ((PhotoItem.ID, PhotoContextAction) -> Void)?
 
     init(previewLoader: PhotoCarouselPreviewLoader) {
         self.previewLoader = previewLoader
@@ -119,6 +120,63 @@ final class PhotoCarouselContainerView: NSView, NSCollectionViewDataSource, NSCo
             guard let self, self.photos.indices.contains(index), self.photos[index].id == photo.id else { return }
             self.onSelectPhoto?(index)
         }
+        item.onContextMenu = { [weak self] in
+            self?.contextMenu(for: photo.id)
+        }
+    }
+
+    func contextMenu(for photoID: PhotoItem.ID) -> NSMenu? {
+        guard let photo = photos.first(where: { $0.id == photoID }) else { return nil }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.addItem(menuItem("Edit", photoID: photoID, action: .edit))
+
+        let categoriesMenu = NSMenu()
+        categoriesMenu.autoenablesItems = false
+        let unsorted = menuItem("Unsorted", photoID: photoID, action: .categorize(nil))
+        unsorted.state = photo.status.isUncategorized ? .on : .off
+        unsorted.isEnabled = !photo.status.isUncategorized
+        categoriesMenu.addItem(unsorted)
+        for category in categoriesByID.values.sorted(by: { $0.name.localizedStandardCompare($1.name) == .orderedAscending }) {
+            let item = menuItem(category.name, photoID: photoID, action: .categorize(category.id))
+            let isCurrentCategory = photo.status.assignedCategoryID == category.id
+            item.state = isCurrentCategory ? .on : .off
+            item.isEnabled = !isCurrentCategory
+            categoriesMenu.addItem(item)
+        }
+        let changeCategory = NSMenuItem(title: "Change Category", action: nil, keyEquivalent: "")
+        changeCategory.submenu = categoriesMenu
+        menu.addItem(changeCategory)
+        menu.addItem(.separator())
+        menu.addItem(menuItem("Quick Look", photoID: photoID, action: .quickLook))
+        menu.addItem(menuItem("Show in Finder", photoID: photoID, action: .showInFinder))
+        menu.addItem(menuItem("Copy", photoID: photoID, action: .copy))
+        menu.addItem(.separator())
+        menu.addItem(menuItem("Delete Photo…", photoID: photoID, action: .delete))
+        return menu
+    }
+
+    private struct MenuAction {
+        let photoID: PhotoItem.ID
+        let action: PhotoContextAction
+    }
+
+    private func menuItem(_ title: String, photoID: PhotoItem.ID, action: PhotoContextAction) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: #selector(performPhotoAction), keyEquivalent: "")
+        item.target = self
+        item.representedObject = MenuAction(photoID: photoID, action: action)
+        return item
+    }
+
+    @objc private func performPhotoAction(_ sender: NSMenuItem) {
+        guard sender.isEnabled,
+              let request = sender.representedObject as? MenuAction,
+              let photo = photos.first(where: { $0.id == request.photoID }) else { return }
+        if case let .categorize(categoryID) = request.action {
+            guard categoryID != photo.status.assignedCategoryID else { return }
+            if let categoryID, categoriesByID[categoryID] == nil { return }
+        }
+        onPhotoAction?(request.photoID, request.action)
     }
 
     private func updateDocumentFrame() {

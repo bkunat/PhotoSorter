@@ -88,13 +88,6 @@ struct PhotoEditorSheet: View {
                     .disabled(editor.adjustments.cropRect == PhotoEditorAdjustments().cropRect)
             }
             .disabled(isBusy || image == nil)
-            HStack(spacing: 20) {
-                cropControl("Left", keyPath: \.origin.x)
-                cropControl("Top", keyPath: \.origin.y)
-                cropControl("Width", keyPath: \.size.width)
-                cropControl("Height", keyPath: \.size.height)
-            }
-            .disabled(isBusy || image == nil)
 
             Text("Save updates this file. Originals are kept in PhotoSorter’s Application Support folder. You can undo saved edits during this sorting session.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -138,27 +131,6 @@ struct PhotoEditorSheet: View {
 
     private func adjustmentEditingChanged(_ isEditing: Bool) {
         if isEditing { editor.beginAdjustment() } else { editor.endAdjustment() }
-    }
-
-    private func cropControl(_ title: String, keyPath: WritableKeyPath<CGRect, CGFloat>) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("\(title): \(Int((editor.adjustments.cropRect[keyPath: keyPath] * 100).rounded()))%")
-                .font(.caption.monospacedDigit())
-            Slider(value: Binding(
-                get: { editor.adjustments.cropRect[keyPath: keyPath] },
-                set: { value in
-                    var rect = editor.adjustments.cropRect
-                    rect[keyPath: keyPath] = value
-                    rect.origin.x = min(rect.minX, 0.99)
-                    rect.origin.y = min(rect.minY, 0.99)
-                    rect.size.width = max(0.01, min(rect.width, 1 - rect.minX))
-                    rect.size.height = max(0.01, min(rect.height, 1 - rect.minY))
-                    editor.setCropRect(rect)
-                }
-            ), in: 0...1, onEditingChanged: adjustmentEditingChanged)
-            .accessibilityLabel(title)
-            .accessibilityValue("\(Int((editor.adjustments.cropRect[keyPath: keyPath] * 100).rounded())) percent")
-        }
     }
 
     private func save() {
