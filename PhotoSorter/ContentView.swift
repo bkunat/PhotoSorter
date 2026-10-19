@@ -94,7 +94,7 @@ struct ContentView: View {
                 .help("Undo the last edit, deletion, or move (⌘Z)")
             }
             ToolbarItemGroup {
-                Button("Edit Photo", systemImage: "slider.horizontal.3") {
+                Button("Edit", systemImage: "slider.horizontal.3") {
                     previewURL = nil
                     editingPhoto = store.currentPhoto
                 }

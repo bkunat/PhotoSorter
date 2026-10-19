@@ -16,7 +16,7 @@ struct KeyboardShortcutsPanelView: View {
             shortcutRow(key: "Space", action: "Quick Look")
             shortcutRow(key: "⌘O", action: "Choose folder")
             shortcutRow(key: "⌘N", action: "New category")
-            shortcutRow(key: "⌘E", action: "Edit photo")
+            shortcutRow(key: "⌘E", action: "Edit")
             shortcutRow(key: "⌘⌫", action: "Delete photo")
             shortcutRow(key: "⌘Z", action: "Undo last edit, deletion, or move")
         }

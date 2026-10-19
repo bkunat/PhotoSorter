@@ -13,6 +13,7 @@ nonisolated enum PhotoEditorImage {
         case unsupportedFormat
         case multipleImages
         case invalidCrop
+        case invalidRotation
         case renderingFailed
         case encodingFailed
 
@@ -26,6 +27,8 @@ nonisolated enum PhotoEditorImage {
                 "Photos containing animation or multiple images cannot be edited."
             case .invalidCrop:
                 "Select a crop area inside the photo."
+            case .invalidRotation:
+                "Choose a rotation between −45° and 45°."
             case .renderingFailed:
                 "The edited photo could not be rendered."
             case .encodingFailed:
@@ -51,6 +54,33 @@ nonisolated enum PhotoEditorImage {
 
     static func rotateClockwise(_ image: CGImage) throws -> CGImage {
         try render(CIImage(cgImage: image).oriented(.right), matching: image)
+    }
+
+    static func straightenScale(size: CGSize, degrees: Double) -> CGFloat {
+        let radians = CGFloat(degrees * .pi / 180)
+        let sine = abs(sin(radians))
+        return max(cos(radians) + size.height / size.width * sine,
+                   cos(radians) + size.width / size.height * sine)
+    }
+
+    static func straighten(_ image: CGImage, degrees: Double) throws -> CGImage {
+        guard degrees.isFinite, (-45...45).contains(degrees) else {
+            throw EditorError.invalidRotation
+        }
+        guard degrees != 0 else { return image }
+        let size = CGSize(width: image.width, height: image.height)
+        let scale = straightenScale(size: size, degrees: degrees)
+        let outputSize = CGSize(width: floor(size.width / scale), height: floor(size.height / scale))
+        guard outputSize.width >= 1, outputSize.height >= 1 else { throw EditorError.renderingFailed }
+        let transform = CGAffineTransform(translationX: -size.width / 2, y: -size.height / 2)
+            .concatenating(CGAffineTransform(rotationAngle: -CGFloat(degrees * .pi / 180)))
+        let centeredTransform = transform.concatenating(CGAffineTransform(
+            translationX: outputSize.width / 2, y: outputSize.height / 2
+        ))
+        // Extend edge pixels only for interpolation at the inscribed crop boundary.
+        let rotated = CIImage(cgImage: image).clampedToExtent().transformed(by: centeredTransform)
+            .cropped(to: CGRect(origin: .zero, size: outputSize))
+        return try render(rotated, matching: image)
     }
 
     // The selection uses the same top-left origin as the editor's displayed photo.

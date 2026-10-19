@@ -37,6 +37,53 @@ final class PhotoEditorImageTests: XCTestCase {
         XCTAssertEqual(try rgbPixels(restored), try rgbPixels(original))
     }
 
+    func testStraighteningZeroReturnsOriginalImage() throws {
+        let original = try makeImage()
+
+        XCTAssertTrue(try PhotoEditorImage.straighten(original, degrees: 0) === original)
+        XCTAssertEqual(PhotoEditorImage.straightenScale(size: CGSize(width: 240, height: 180), degrees: 0), 1)
+    }
+
+    func testStraighteningCropsToInscribedRectangleWithoutEmptyCorners() throws {
+        let landscape = try makeStraighteningImage()
+        let portrait = try PhotoEditorImage.rotateClockwise(landscape)
+        for image in [landscape, portrait] {
+            for degrees in [-45.0, -15, -2.5, 2.5, 15, 45] {
+                let rotated = try PhotoEditorImage.straighten(image, degrees: degrees)
+                let scale = PhotoEditorImage.straightenScale(
+                    size: CGSize(width: image.width, height: image.height), degrees: degrees
+                )
+                XCTAssertEqual(rotated.width, Int(floor(CGFloat(image.width) / scale)))
+                XCTAssertEqual(rotated.height, Int(floor(CGFloat(image.height) / scale)))
+                let pixels = try rgbaPixels(rotated)
+                for index in [0, rotated.width - 1, (rotated.height - 1) * rotated.width,
+                              rotated.height * rotated.width - 1] {
+                    XCTAssertEqual(pixels[index * 4 + 3], 255, "Empty corner at \(degrees)°")
+                    XCTAssertGreaterThan(Int(pixels[index * 4]) + Int(pixels[index * 4 + 2]), 200)
+                }
+            }
+        }
+    }
+
+    func testPositiveStraighteningRotatesClockwise() throws {
+        let original = try makeStraighteningImage()
+        for degrees in [-15.0, 15] {
+            let rotated = try PhotoEditorImage.straighten(original, degrees: degrees)
+            let pixels = try rgbaPixels(rotated)
+            let index = (rotated.height / 2 * rotated.width + rotated.width * 3 / 4) * 4
+            XCTAssertEqual(Array(pixels[index..<(index + 3)]), degrees > 0 ? [255, 0, 0] : [0, 0, 255])
+        }
+    }
+
+    func testStraighteningRejectsInvalidAngles() throws {
+        let image = try makeImage()
+        for degrees in [-45.1, 45.1, .infinity, -.infinity, .nan] {
+            XCTAssertThrowsError(try PhotoEditorImage.straighten(image, degrees: degrees)) { error in
+                XCTAssertEqual(error as? PhotoEditorImage.EditorError, .invalidRotation)
+            }
+        }
+    }
+
     func testCropUsesTopLeftCoordinates() throws {
         let original = try makeImage()
 
@@ -158,6 +205,11 @@ final class PhotoEditorImageTests: XCTestCase {
     }
 
     private func rgbPixels(_ image: CGImage) throws -> [UInt8] {
+        let pixels = try rgbaPixels(image)
+        return stride(from: 0, to: pixels.count, by: 4).flatMap { Array(pixels[$0..<($0 + 3)]) }
+    }
+
+    private func rgbaPixels(_ image: CGImage) throws -> [UInt8] {
         var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
         try pixels.withUnsafeMutableBytes { buffer in
             let context = try XCTUnwrap(CGContext(
@@ -168,7 +220,27 @@ final class PhotoEditorImageTests: XCTestCase {
             ))
             context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         }
-        return stride(from: 0, to: pixels.count, by: 4).flatMap { Array(pixels[$0..<($0 + 3)]) }
+        return pixels
+    }
+
+    private func makeStraighteningImage() throws -> CGImage {
+        let width = 240
+        let height = 180
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let index = (y * width + x) * 4
+                pixels[index + (y < height / 2 ? 0 : 2)] = 255
+                pixels[index + 3] = 255
+            }
+        }
+        let provider = try XCTUnwrap(CGDataProvider(data: Data(pixels) as CFData))
+        return try XCTUnwrap(CGImage(
+            width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent
+        ))
     }
 
     private func writeImage(
